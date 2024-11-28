@@ -4,36 +4,42 @@ lettuce:
     nu: 3
     nd: 4
     h: 900
-    n_days: 1
+    n_days: 2
     Np: 24
-    weights: [10, 10, 50]
+    start_day: 29 
+    lb_pen_w: [5.e-5, 0.0033333333333333335, 0.02]
+    ub_pen_w: [5.e-5, 0., 0.02]
     Ns: 1
     sigmad: 0.0
     constraints:
       co2_supply_min: 0     # lower bound on CO2 supply rate                [kg{co2} m^{-2} s^{-1}]    0
       co2_supply_max: 1.2   # upper bound on CO2 supply rate                [mg{co2} m^{-2} s^{-1}]    1.2
-      vent_min: 0           # lower bound on ventilation rate               [m s^{-1}]                 0
-      vent_max: 7.5         # upper bound on ventilation rate               [mm s^{-1}]                7.5e
+      vent_min: 0           # lower bound on ventilation rate               [mm s^{-1}]                 0
+      vent_max: 7.5         # upper bound on ventilation rate               [mm s^{-1}]                7.5
       heat_min: 0           # lower bound on energy input through heating   [W m^{-2}]                 0
-      heat_max: 150         # upper bound on energy input through heating   [W m^{-2}]                 150
+      heat_max: 150.        # upper bound on energy input through heating   [W m^{-2}]                 150
 
-      W_min: 0              # lower bound on dry weight                     [kg{crop} m^{-2}]        
-      W_max: !!float inf    # upper bound on dry weight                     [kg{crop} m^{-2}]        
-      co2_min: 0            # lower bound on CO2 concentration              [kg{co2} m^{-3}]        0
-      co2_max: 2.75e-3      # upper bound on CO2 concentration              [kg{co2} m^{-3}]        2.75e-3
-      temp_min: 10          # lower bound on temperature                    [°C]                    6.5
-      temp_max: 20          # upper bound on temperature                    [°C]                    20
-      rh_min: 0             # lower bound on relative humidity              [#]                     0
-      rh_max: 75            # upper bound on relative humidity              [#]                     70
+      W_min: 0.002          # lower bound on dry weight                     [kg{crop} m^{-2}]        
+      W_max: 0.6            # upper bound on dry weight                     [kg{crop} m^{-2}]        
+      co2_min: 500.         # lower bound on CO2 concentration              [kg{co2} m^{-3}]        0
+      co2_max: 1600.        # upper bound on CO2 concentration              [kg{co2} m^{-3}]        2.75e-3
+      temp_min: 10.         # lower bound on temperature                    [°C]                    6.5
+      temp_max: 20.         # upper bound on temperature                    [°C]                    20
+      rh_min: 0.            # lower bound on relative humidity              [#]                     0
+      rh_max: 100.          # upper bound on relative humidity              [#]                     70
 
     nlp_opts:
       ipopt:
         linear_solver: ma57
-        warm_start_init_point: 'yes'
+        warm_start_entire_iterate: 'yes'
         nlp_scaling_method: gradient-based
         hessian_approximation: limited-memory
         print_level: 1
-        max_iter: 1000
+        max_iter: 10000
+
+        # constr_viol_tol: 0.01
+        # acceptable_constr_viol_tol: 0.1 
+        # acceptable_tol: 1.e-2 
       # jit: True
       # compiler: shell
       # jit_options:
