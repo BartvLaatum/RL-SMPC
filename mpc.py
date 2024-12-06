@@ -1,10 +1,10 @@
 import argparse
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Tuple
 
 import yaml
 import numpy as np
-import pandas as pd
 import casadi as ca
+import pandas as pd
 
 from utils import *
 
@@ -17,6 +17,7 @@ class MPC:
             nd: int,
             h: float,
             n_days: int,
+            x0: List[float],
             Np: int,
             Ns: int,
             start_day: int,
@@ -24,8 +25,10 @@ class MPC:
             lb_pen_w: List[float],
             ub_pen_w: List[float],
             constraints: Dict[str, Any],
-            nlp_opts: Dict[str, Any]
+            nlp_opts: Dict[str, Any],
             ) -> None:
+        self.x_initial = x0
+        
         self.nx = nx
         self.nu = nu
         self.ny = ny
@@ -47,21 +50,20 @@ class MPC:
         self.constraints = constraints
         self.nlp_opts = nlp_opts
 
-
         # initialize the boundaries for the optimization problem
         self.init_nmpc()
 
-        self.F, self.g = define_model(self.h, self.x_min, self.x_max)
+        self.F, self.g = define_model(self.h)
 
     def init_nmpc(self):
         """Initialize the nonlinear MPC problem.
         Initialise the constraints, bounds, and the optimization problem.
         """
-        ah_max = rh2vaporDens(self.constraints["temp_max"], self.constraints["rh_max"])    # upper bound on vapor density                  [kg/m^{-3}]      
+        # ah_max = rh2vaporDens(self.constraints["temp_max"], self.constraints["rh_max"])    # upper bound on vapor density                  [kg/m^{-3}]      
         ah_min = rh2vaporDens(self.constraints["temp_min"], self.constraints["rh_min"])    # lower bound on vapor density                  [kg/m^{-3}]
         co2_dens_min = co2ppm2dens(self.constraints["co2_min"], self.constraints["temp_min"]) # lower bound on co2 density                   [kg/m^{-3}]           
         co2_dens_max = co2ppm2dens(self.constraints["co2_max"], self.constraints["temp_max"]) # upper bound on co2 density                   [kg/m^{-3}]
-        self.x_min = np.array([self.constraints["W_min"], 0., 5., ah_min])
+        self.x_min = np.array([self.constraints["W_min"], 0, 5., ah_min])
         self.x_max = np.array([self.constraints["W_max"], 0.004, 40., 0.051])
 
         self.y_min = np.array([self.constraints["W_min"], self.constraints["co2_min"], self.constraints["temp_min"], self.constraints["rh_min"]])
@@ -70,292 +72,283 @@ class MPC:
         # control input constraints vector
         self.u_min = np.array([self.constraints["co2_supply_min"], self.constraints["vent_min"], self.constraints["heat_min"]])
         self.u_max = np.array([self.constraints["co2_supply_max"], self.constraints["vent_max"], self.constraints["heat_max"]])
+
         # lower and upper bound change of u 
         self.du_max = np.divide(self.u_max, [10, 10, 10])
 
         # initial values of the decision variables (control signals) in the optimization
         self.u0 = np.zeros((self.nu, self.Np)) # this can be moved to the shooting function method.
 
-    def state_constraint_function(self, ys: ca.SX) -> ca.DM:
-        """Putting state constraints in the form of inequality constraints.
-
-        Args:
-            ys (ca.SX): the state measurements
-
-        Returns:
-            ca.DM: the inequality constraints
+    def economic_cost_function(self, params) -> ca.SX:
         """
-        cs = ca.horzcat(
-            ys[1:, 1:]-self.y_max[1:], 
-            -ys[1:, 1:]+self.y_min[1:]
-        )       # Ensure ys >= y_min
-        cs = ca.reshape(cs, 1, -1)
-
-        return cs
-
-    def set_control_bounds(self) -> None:
-        """Set the control bounds for the optimization problem.
+        Economic cost function.
         """
-        self.lbu = []
-        self.ubu = []
-
-        for ll in range(self.nu):
-            self.lbu = np.append(self.lbu, self.u_min[ll]*np.ones((self.Np, 1)))
-            self.ubu = np.append(self.ubu, self.u_max[ll]*np.ones((self.Np, 1)))
-
-    def set_state_bounds(self):
-        """Set the bounds for the inequality constraints. 
-        """
-        num_constraints = self.cs.shape[1]  # Total number of constraints in `self.cs`
-
-        # Set lbg to -inf for all constraints since we only have upper bounds (<=0)
-        num_constraints = self.cs.shape[1]  # Total number of constraints in `cs`
-
-        # Set lbg to -inf for all constraints since we only have upper bounds (<=0)
-        self.lbg = -np.inf * np.ones((num_constraints,))
-
-        # Set ubg to 0 for all constraints to enforce the inequalities in `cs`
-        self.ubg = np.zeros((num_constraints,))
-
-
-    def set_control_change_bounds(self):
-        """Set the control bounds for the optimization problem.
-        """
-    # set constraints for control input changes
-        for ll in range(self.nu):
-            self.lbg   = np.append(self.lbg, -self.du_max[ll]*np.ones((self.Np, 1)))
-            self.ubg   = np.append(self.ubg,  self.du_max[ll]*np.ones((self.Np, 1)))
-
-
-    def cost_pen_function(self, ys, us, p) -> ca.SX:
-        """Set the cost function penalties for the constraints in the optimization problem.
-
-        Args:
-            ys (ca.SX): the state measurements
-            us (ca.SX): the control measurements
-
-        Returns:
-            ca.SX: the cost function with penalties
-        """
-        l = ca.horzcat(self.y_min[1:] - ys[1:, :])
-        l_pen = ca.mtimes(self.lb_pen_w, ca.fmax(0, l))
-        u = ca.horzcat(ys[1:, :] - self.y_max[1:])
-        u_pen = ca.mtimes(self.ub_pen_w, ca.fmax(0, u))
-
-        Js = -1e3 * p[26] * (ys[0,-1]-ys[0,0]) +\
-            1e-6 * self.h*p[24] * ca.sum2(us[0,:])+\
-            self.h/3600 * p[23] * 1e-3 * ca.sum2(us[2,:]) +\
-            ca.sum2(l_pen) + ca.sum2(u_pen)
+        Js = -22.285124999999997 *  (self.xs[0, -1] - self.xs[0, 0])\
+            + 0.00017154 * ca.sum2(self.us[0, :])\
+            + 3.2025e-5 * ca.sum2(self.us[2, :])
+        # Js = -params[26] *  (self.xs[0, -1] - self.xs[0, 0])\
+        #     + 1e-6 * self.h * params[24] * ca.sum2(self.us[0, :])\
+        #     + self.h / 3600 * params[23] * 1e-3 * ca.sum2(self.us[2, :])
         return Js
 
-    def cost_function_with_P(self, ys, us, params, P) -> ca.SX:
+
+    def cost_function_with_P(self, params) -> ca.SX:
         """
         Cost function including penalty variables `P` for constraint violations.
         """
-        # Objective Terms (e.g., maximizing dry mass growth, minimizing control effort)
-        Js = -1e3 * params[26] * (ys[0, -1] - ys[0, 0]) + \
-            1e-6 * self.h * params[24] * ca.sum2(us[0, :]) + \
-            self.h / 3600. * params[23] * 1e-3 * ca.sum2(us[2, :]) + \
-            ca.sum1(ca.sum2(P))  # Sum of penalty variables
-
+        Js = self.economic_cost_function(params)\
+            + ca.sum1(ca.sum2(self.P))  # Sum of penalty variables
         return Js
 
-    def define_nlp(self, p: Dict[str, Any], constraints) -> Dict[str, Any]:
+    def set_slack_variables(self, ll: int, p: Dict[str, Any]) -> Tuple[List[ca.SX], List[float], List[float]]:
         """
-        Define the optimization problem for the nonlinear MPC.
-        Including the cost function, constraints, and bounds.
-        """
-        self.x0  = ca.SX.sym('x0', self.nx, 1)          # initial state# initial state
-        self.us  = ca.SX.sym('us', self.nu, self.Np)    # control inputs
-        self.dus = ca.diff(self.us, 1, 1)               # control inputs rate of change
-        self.Us  = ca.transpose(self.us)[:]             # vectorized control inputs Us 
-        self.ds  = ca.SX.sym('ds', self.nd, self.Np)    # disturbance variables
-        xs  = ca.SX.sym('xs', self.nx, self.Np+1)       # state variables
-        ys  = ca.SX.sym('ys', self.ny, self.Np)         # output variables
-        self.P = ca.SX.sym('P', 4, self.Np)  # Penalty variables
-        penalty_constraints = []
+        Define slack variable constraints without using Opti stack.
 
-        xs[:, 0] = self.x0
+        Returns:
+            constraints (List[ca.SX]): List of constraint expressions.
+            lbg (List[float]): Lower bounds for the constraints.
+            ubg (List[float]): Upper bounds for the constraints.
+        """
+        constraints = []
+        lbg = []
+        ubg = []
+
+        num_penalties = self.P.shape[0]  # Number of penalty variables
+        for i in range(num_penalties):
+            constraints.append(self.P[i, ll])
+            lbg.append(0)
+            ubg.append(ca.inf)
+
+        # CO2 Lower Bound Penalty
+        expr = self.P[0, ll] - self.lb_pen_w[0, 0] * (self.y_min[1] - self.ys[1, ll])
+        constraints.append(expr)
+        lbg.append(0)
+        ubg.append(ca.inf)
+
+        # CO2 Upper Bound Penalty
+        expr = self.P[1, ll] - self.ub_pen_w[0, 0] * (self.ys[1, ll] - self.y_max[1])
+        constraints.append(expr)
+        lbg.append(0)
+        ubg.append(ca.inf)
+
+        # Temperature Lower Bound Penalty
+        expr = self.P[2, ll] - self.lb_pen_w[0, 1] * (self.y_min[2] - self.ys[2, ll])
+        constraints.append(expr)
+        lbg.append(0)
+        ubg.append(ca.inf)
+
+        # Temperature Upper Bound Penalty
+        expr = self.P[3, ll] - self.ub_pen_w[0, 1] * (self.ys[2, ll] - self.y_max[2])
+        constraints.append(expr)
+        lbg.append(0)
+        ubg.append(ca.inf)
+
+        # Humidity Lower Bound Penalty
+        expr = self.P[4, ll] - self.lb_pen_w[0, 2] * (self.y_min[3] - self.ys[3, ll])
+        constraints.append(expr)
+        lbg.append(0)
+        ubg.append(ca.inf)
+
+        # Humidity Upper Bound Penalty
+        expr = self.P[5, ll] - self.ub_pen_w[0, 2] * (self.ys[3, ll] - self.y_max[3])
+        constraints.append(expr)
+        lbg.append(0)
+        ubg.append(ca.inf)
+
+        return constraints, lbg, ubg
+
+
+    def define_nlp(self, p) -> None:
+        """
+        Define the optimization problem for the nonlinear MPC without using CasADi's Opti stack.
+        """
+        # Decision Variables
+        num_penalties = 6
+        self.us = ca.MX.sym('us', self.nu, self.Np)
+        self.P = ca.MX.sym('P', num_penalties, self.Np)
+        self.xs = ca.MX.sym('xs', self.nx, self.Np + 1)
+        self.ys = ca.MX.sym('ys', self.ny, self.Np)
+
+        # Parameters
+        self.x0 = ca.MX.sym('x0', self.nx, 1)
+        self.ds = ca.MX.sym('ds', self.nd, self.Np)
+        self.init_u = ca.MX.sym('init_u', self.nu, 1)
+
+        # Initialize constraints and bounds
+        g = []
+        lbg = []
+        ubg = []
+
+        # Initial State Constraint
+        g.append(self.xs[:, 0] - self.x0)
+        lbg.extend([0] * self.nx)
+        ubg.extend([0] * self.nx)
+
+
         for ll in range(self.Np):
-            xs[:,ll+1] = self.F(xs[:,ll], self.us[:,ll], self.ds[:,ll], p)
-            ys[:,ll]   = self.g(xs[:,ll])
+            # State Transition Constraint
+            x_next = self.F(self.xs[:, ll], self.us[:, ll], self.ds[:, ll], p)
+            g.append(self.xs[:, ll + 1] - x_next)
+            lbg.extend([0] * self.nx)
+            ubg.extend([0] * self.nx)
 
-            penalty_constraints += [self.P[:, ll] >= 0]
-            penalty_constraints.append(
-                self.P[0, ll] >= self.lb_pen_w[0,0] * (self.y_min[1] - ys[1, ll])
-            )
-            # CO₂ Upper Bound Penalty
-            penalty_constraints.append(
-                self.P[1, ll] >= self.ub_pen_w[0,0] * (ys[1, ll] - self.y_max[1])
-            )
-            # Temperature Lower Bound Penalty
-            penalty_constraints.append(
-                self.P[2, ll] >= self.lb_pen_w[0,1] * (self.y_min[2] - ys[2, ll])
-            )
-            # Temperature Upper Bound Penalty
-            penalty_constraints.append(
-                self.P[3, ll] >= self.ub_pen_w[0,1] * (ys[2, ll] - self.y_max[2])
-            )
+            # Output Constraint
+            y_current = self.g(self.xs[:, ll + 1])
+            g.append(self.ys[:, ll] - y_current)
+            lbg.extend([0] * self.ny)
+            ubg.extend([0] * self.ny)
 
-        if constraints == "penalty":
-        # Penalty Constraints for CO₂ and Temperature
-            # COST FUNCTION FOR LETTUCE PRODUCTION WITH PENALTY ON CONSTRAINTS
-            self.Js = self.cost_pen_function(ys, self.us, p)
-            self.cs = ca.horzcat([],[])
+            # Corrected Input Constraints
+            g.append(self.us[:, ll])
+            lbg.extend(self.u_min.tolist())
+            ubg.extend(self.u_max.tolist())
 
-        elif constraints == "pen-dec-var":
-            # COST FUNCTION FOR LETTUCE PRODUCTION NO CONSTRAINTS in the cost function
-            self.Js = self.cost_function_with_P(ys, self.us, p, self.P)
-            self.cs = ca.horzcat([],[])
-            
-        elif constraints == "hard":
-            # COST FUNCTION FOR LETTUCE PRODUCTION NO CONSTRAINTS in the cost function
-            self.Js = -1e3*p[26]*(ys[0,-1]-ys[0,0]) + \
-                1e-6*self.h*p[24]*casadi.sum2(self.us[0,:])+ \
-                self.h*p[23]*casadi.sum2(self.us[2,:])
+            # Slack Variable Constraints
+            P_constraints, P_lbg, P_ubg  = self.set_slack_variables(ll, p)
+            g.extend(P_constraints)
+            lbg.extend(P_lbg)
+            ubg.extend(P_ubg)
 
+            # Change in Input Constraints
+            if ll < self.Np - 1:
+                du = self.us[:, ll + 1] - self.us[:, ll]
+                g.append(du)
+                lbg.extend(-self.du_max)
+                ubg.extend(self.du_max)
 
-            self.cs = self.state_constraint_function(ys)
-            self.set_state_bounds()
+        # Corrected Initial Change in Input Constraint
+        du0 = self.us[:, 0] - self.init_u
+        g.append(du0)
+        lbg.extend(-self.du_max)
+        ubg.extend(self.du_max)
 
-        # set the control bounds
-        self.set_control_bounds()
-        self.set_control_change_bounds()
+        # Cost Function
+        Js = self.cost_function_with_P(p)
 
-        # Combine self.Us and self.P in the decision vector
-        self.w = ca.vertcat(ca.reshape(self.Us, -1, 1), ca.reshape(self.P, -1, 1))
-
-
-        # equality constraints
-        self.ceqs = ca.horzcat([],[]) #ca.horzcat(ys[0,-1]-2, ys[1,-1]-1)                    
-        self.xs = ca.Function('xs', [self.x0, self.us, self.ds], [xs])
-        self.ys = ca.Function('ys', [self.x0, self.us, self.ds], [ys])
-        self.Fs = ca.Function(
-            'Fs',
-            [self.x0, self.w, self.ds],
-            [self.Js, self.cs, self.ceqs],
-            ['x0', 'w', 'ds'],
-            ['J', 'c', 'ceq']
+        # Decision Variable Vector
+        w = ca.vertcat(
+            ca.reshape(self.us, -1, 1),
+            ca.reshape(self.P, -1, 1),
+            ca.reshape(self.xs, -1, 1),
+            ca.reshape(self.ys, -1, 1)
         )
 
-    def update_nlp(self, x0, u0, d):
-        """Update the optimization problem with new values for the state, control, and disturbance variables.
+        # Parameter Vector
+        p_vector = ca.vertcat(
+            ca.reshape(self.x0, -1, 1),
+            ca.reshape(self.ds, -1, 1),
+            ca.reshape(self.init_u, -1, 1)
+        )
 
-        Args:
-            x0 (np.ndarray): the initial state
-            u0 (np.ndarray): value of the previous executed control signal.
-            d (np.ndarray): the disturbances
+        # Create NLP Problem
+        nlp = {'x': w, 'f': Js, 'g': ca.vertcat(*g), 'p': p_vector}
+
+        # Solver Options
+        # opts = {'ipopt': {'print_level': 0, 'tol': 1e-6}}
+        self.solver = ca.nlpsol('solver', 'ipopt', nlp, self.nlp_opts)
+
+        # Store Bounds
+        self.lbg = lbg
+        self.ubg = ubg
+
+    def solve_nlp_problem(self, x0_value, u0_value, d_value, step):
         """
-        # compute the change of the previous control input.
-        self.dUs = ca.transpose(ca.horzcat(self.us[:,0] - u0, self.dus))
-        self.dUs = self.dUs[:]
-
-    def solve_nlp_problem(self, x0, d):
-        """Given intial values for state, control, and disturbances, solve the optimization problem.
-
-        Args:
-            mpc (MPC): class that holds the model predictive control problem.
-            x0 (np.array-like): _description_
-            d (_type_): _description_
-            p (_type_): _description_
-            ops (_type_): _description_
-
-        Returns:
-            _type_: _description_
+        Solve the optimization problem using the nlpsol interface.
         """
-        # u0      = self.u0                 # initial guess for the control signals
-        # u0      = np.matrix.flatten(u0)
-        g       = []
-        lbg     = []
-        ubg     = []
-        cost    = 0.0
+        # Prepare Parameters
+        p_value = ca.vertcat(
+            ca.reshape(x0_value, -1, 1),
+            ca.reshape(d_value, -1, 1),
+            ca.reshape(u0_value, -1, 1)
+        )
 
-        # for loop for if we aim to use randomized MPC on the weather variables
-        for ll in range(self.Ns):
+        u0 = np.zeros(self.us.shape)
+        P0 = np.zeros(self.P.shape)
+        x0 = np.zeros(self.xs.shape)
+        y0 = np.zeros(self.ys.shape)
+        x0[:, 0] = x0_value
+        y0[:, 0] = self.g(x0_value).toarray().ravel()
 
-            dmax                      = (1+self.sigmad)*d
-            dmin                      = (1-self.sigmad)*d
+        w0 = np.concatenate([u0.flatten(), P0.flatten(), x0.flatten(), y0.flatten()])
 
-            di                        = np.random.uniform(low=dmin, high=dmax, size=(self.nd, self.Np))
-            
-            costi, gi, lbu, ubu, lbgi, ubgi = self.costfunction_nonlinearconstraints(x0, di)
+        # Initial Guess for Decision Variables
+        # w0 = np.zeros(self.u0)
 
-            lbg  = ca.vertcat(lbg, lbgi)
-            ubg  = ca.vertcat(ubg, ubgi)
+        # Solve the NLP Problem
+        try:
+            sol = self.solver(x0=w0, p=p_value, lbg=self.lbg, ubg=self.ubg)
 
-            g = ca.vertcat(g, gi)
-            cost = cost + costi
+            w_opt = sol['x'].full().flatten()
 
-        cost = cost/self.Ns
+            num_u = self.nu * self.Np
+            num_xs = self.nx * (self.Np + 1)
+            num_ys = self.ny * self.Np
+            num_P = 6 * self.Np
 
-        nlp    = {'f': cost, 'x': self.w, 'g': g}
-        solver  = ca.nlpsol('solver', 'ipopt', nlp, self.nlp_opts)
+            xs_opt = w_opt[num_u:num_u + num_xs].reshape(self.nx, self.Np + 1)
+            ys_opt = w_opt[num_u + num_xs:num_u + num_xs + num_ys].reshape(self.ny, self.Np)
+            P_opt = w_opt[num_u + num_xs + num_ys:num_u + num_xs + num_ys + num_P].reshape(6, self.Np)
 
-        # Solve the NLP
-        # if 'lam_x0' in ops: # if you want to set the lagrange multipliers
-        #     output  = solver(x0=u0, lbx=lbu, ubx=ubu, \
-        #         lbg=lbg, ubg=ubg, lam_x0=ops['lam_x0'], lam_g0=ops['lam_g0'])
-        # else:
-        output  = solver(x0=self.u0.flatten(), lbx=lbu, ubx=ubu,lbg=lbg, ubg=ubg)
+            us_opt = w_opt[:num_u].reshape(self.nu, self.Np)
 
-        Uopt    = output['x'].full().flatten()
-        uopt    = Uopt.reshape(self.nu, self.Np)
-        V       = output['f'].full().flatten()
 
-        dUs     = self.dUs
-        Fs      = self.Fs
-        grad    = np.zeros((self.nu*self.Np, 1))
-        hessian = np.zeros((self.nu*self.Np, self.nu*self.Np))
+            Js_opt = sol['f'].full()[0][0]
+            # Update Initial Control Input
+            self.w0 = w_opt
 
-        if solver.stats()['success'] == False: # check if solution converged
+            # fig, ax = plt.subplots(4, 4)
+
+            # t = np.arange(0, 4)
+
+            # # ax[0,0].step(t, ys_opt[2, :])
+            # for i in range(self.ny):
+            #     ax[0, i].step(t, xs_opt[i, :t.size])
+
+            # for i in range(self.ny):
+            #     ax[1, i].step(t, ys_opt[i, :t.size])
+            # for i in range(3):
+            #     ax[2, i].step(t, us_opt[i, :t.size])
+            # for i in range(3):
+            #     ax[3, i+1].step(t, P_opt[i*2, :t.size])
+            #     ax[3, i+1].step(t, P_opt[i*2+1, :t.size])
+            # fig.savefig(f"resultst={step}.png")
+            # plt.show()
+
+
+        except RuntimeError as e:
             print("Solver failed to converge")
-            grad[:, 0] = 1
-        
-        return uopt, V[0], Fs, output, dUs, grad, hessian
+            sol = None
+            us_opt = None
+            Js_opt = None
+            self.u0 = np.zeros((self.nu, self.Np))
 
-
-
-    def costfunction_nonlinearconstraints(self, x0, d):
-        """Compute the cost function and nonlinear constraints for a given optimization problem.
-
-        Args:
-            x0 (array-like): Initial state vector.
-            d (array-like): Disturbance vector.
-        Returns:
-            cost (float) : The computed cost value.
-            g (array-like) : Vector of inequality and equality constraints.
-            lbu (array-like): Lower bounds on the control inputs.
-            ubu (array-like): Upper bounds on the control inputs.
-            lbg (array-like): Lower bounds on the constraints.
-            ubg (array-like): Upper bounds on the constraints.
-        """
-        # print("Computing cost function and constraints")
-        # print(f"x0: {x0}")
-        # print("d: ", d[:,0])
-        # print(d.shape)
-        temp  = self.Fs.call({'x0': x0, 'Us': self.Us, 'ds': d})
-
-        cost  = temp['J']
-        c     = temp['c']
-        ceq   = temp['ceq']
-                    
-        lbu   = self.lbu
-        ubu   = self.ubu
-
-        g     = ca.horzcat(c, ceq, ca.transpose(self.dUs))
-        lbg   = self.lbg
-        ubg   = self.ubg
-        return cost, g, lbu, ubu, lbg, ubg 
+        return us_opt, Js_opt, sol
 
 class Experiment:
-    def __init__(self, mpc: MPC, save_name: str) -> None:
+    def __init__(
+        self,
+        mpc: MPC,
+        save_name: str,
+        project_name: str,
+        weather_filename: str,
+    ) -> None:
+
         self.save_name = save_name
+        self.project_name = project_name
         self.mpc = mpc
         self.x = np.zeros((self.mpc.nx, self.mpc.N+1))
         self.y = np.zeros((self.mpc.nx, self.mpc.N))
-        self.x[:, 0] = np.array([0.0035, 1e-03, 15, 0.008])
+        
+        self.x[:, 0] = np.array(mpc.x_initial)
         self.u = np.zeros((self.mpc.nu, self.mpc.N+1))
-        self.d = LoadDisturbancesMpc(self.mpc)
+        self.d = load_disturbances(
+            weather_filename,
+            self.mpc.L,
+            self.mpc.start_day,
+            self.mpc.h,
+            self.mpc.Np,
+            self.mpc.nd
+        )
 
         self.uopt = np.zeros((mpc.nu, mpc.Np, mpc.N+1))
         self.J = np.zeros((1, mpc.N))
@@ -363,9 +356,6 @@ class Experiment:
         self.output = []
         self.gradJ = np.zeros((mpc.nu*mpc.Np, mpc.N, 1))
         self.H = np.zeros((mpc.nu*mpc.Np, mpc.nu*mpc.Np, mpc.N))
-
-        self.step = 0
-
 
 
     def solve_nmpc(self, p) -> None:
@@ -384,23 +374,19 @@ class Experiment:
             np.ndarray: the hessian of the cost function
         """
         for kk in range(self.mpc.N):
-            print(f"Step {self.step}")
-            self.x[:, kk+1] = mpc.F(self.x[:, kk], self.u[:, kk], self.d[:, kk], p).toarray().ravel()
-            self.y[:, kk] = mpc.g(self.x[:, kk]).toarray().ravel()
+        # for kk in range(5):
+            print(f"Step: {kk}")
+            us_opt, Js_opt, sol = mpc.solve_nlp_problem(self.x[:, kk], self.u[:, kk], self.d[:, kk:kk+self.mpc.Np], step=kk)
+            # if the solver fails, use the previous control input
 
-            mpc.update_nlp(self.x[:, kk], self.u[:, kk], self.d[:, kk:kk+self.mpc.Np])
+            self.u[:, kk+1] = us_opt[:, 0]
+            self.update_results(us_opt, Js_opt, sol, kk)
 
-            uopt, J, _, output, _, gradJ, H = mpc.solve_nlp_problem(self.x[:, kk], self.d[:, kk:kk+self.mpc.Np])
-            self.update_results(uopt, J, output, gradJ, H, kk)
+            self.x[:, kk+1] = mpc.F(self.x[:, kk], self.u[:, kk+1], self.d[:, kk], p).toarray().ravel()
+            self.y[:, kk] = mpc.g(self.x[:, kk+1]).toarray().ravel()
 
-            # propagate the state.
-            self.u[:, kk+1] = uopt[:, 0]
-            mpc.u0 = uopt
-            self.step += 1
 
-        return uopt, J, output, gradJ, H
-
-    def update_results(self, uopt, J, output, gradJ, H, step):
+    def update_results(self, us_opt, Js_opt, sol, step):
         """
 
         Args:
@@ -411,11 +397,9 @@ class Experiment:
             H (_type_): _description_
             step (_type_): _description_
         """
-        self.uopt[:,:, step] = uopt
-        self.J[:, step] = J
-        self.output.append(output)
-        self.gradJ[:, step] = gradJ
-        self.H[:,:, step] = H
+        self.uopt[:,:, step] = us_opt
+        self.J[:, step] = Js_opt
+        self.output.append(sol)
 
     def save_results(self):
         """
@@ -439,22 +423,28 @@ class Experiment:
         data["J"] = self.J.flatten()
 
         df = pd.DataFrame(data, columns=data.keys())
-        df.to_csv(f"data/mpc/{self.save_name}.csv", index=False)
+        df.to_csv(f"data/{self.project_name}/{self.save_name}.csv", index=False)
+
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
+    parser.add_argument("--project_name", type=str)
+    parser.add_argument("--env_id", type=str, default="LettuceGreenhouse")
     parser.add_argument("--save_name", type=str)
-    parser.add_argument("--constraints", type=str, default="pen-dec-var")
+    parser.add_argument("--weather_filename", default="outdoorWeatherWurGlas2014.csv", type=str)
+    
     args = parser.parse_args()
     # load the config file
-    with open("configs/mpc.yml", "r") as file:
+    with open(f"configs/envs/{args.env_id}.yml", "r") as file:
+        env_params = yaml.safe_load(file)
+
+    with open("configs/models/mpc.yml", "r") as file:
         mpc_params = yaml.safe_load(file)
 
     # p = DefineParameters()
     p = get_parameters()
-    mpc = MPC(**mpc_params["lettuce"])
-    mpc.init_nmpc()
-    mpc.define_nlp(p, constraints=args.constraints)
-    exp = Experiment(mpc, args.save_name)
+    mpc = MPC(**env_params, **mpc_params[args.env_id])
+    mpc.define_nlp(p)
+    exp = Experiment(mpc, args.save_name, args.project_name, args.weather_filename)
     exp.solve_nmpc(p)
     exp.save_results()
