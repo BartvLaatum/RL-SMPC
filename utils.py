@@ -1,9 +1,68 @@
-from typing import Dict, Any
+from typing import Dict, Any, Tuple
 import numpy as np
 import casadi 
 import math
-import scipy.io as sio
 import pandas as pd
+import yaml
+import wandb
+
+def load_env_params(env_id: str) -> Dict[str, Any]:
+    """
+    Load environment parameters from a yaml file.
+    Arguments:
+        file_name (str): Name of the MAT file containing the environment parameters.
+    Returns:
+        Dict[str, Any]: Dictionary of environment parameters.
+    """    
+    # load the config file
+    with open(f"configs/envs/{env_id}.yml", "r") as file:
+        env_params = yaml.safe_load(file)
+
+    return env_params
+
+def load_rl_params(env_id: str, algorithms: str) -> Tuple[Dict[str, Any], Dict[str, Any]]:
+    """
+    Load environment parameters from a yaml file.
+    Arguments:
+        file_name (str): Name of the MAT file containing the environment parameters.
+        algorithms (str): Name of the algorithms to load the parameters for, e.g., "ppo", "sac", etc.
+    Returns:
+        Dict[str, Any]: Dictionary of environment parameters.
+    """    
+    # load the config file
+    with open(f"configs/models/{algorithms}.yml", "r") as file:
+        all_params = yaml.safe_load(file)
+
+    return all_params["hyperparameters"], all_params[env_id]
+
+def wandb_init(hyperparameters: Dict[str, Any],
+               timesteps: int,
+               env_seed: int,
+               model_seed: int,
+               project: str,
+               group: str,
+               save_code: bool = False,
+               ):
+
+    config= {
+        "env_seed": env_seed,
+        "model_seed": model_seed,
+        **hyperparameters,
+    }
+
+    config_exclude_keys = []
+    run = wandb.init(
+        project=project,
+        config=config,
+        group=group,
+        sync_tensorboard=True,
+        config_exclude_keys=config_exclude_keys,
+        save_code=save_code,
+        allow_val_change=True,
+    )
+    return run, config
+
+
 
 def load_disturbances(
     file_name: str,
