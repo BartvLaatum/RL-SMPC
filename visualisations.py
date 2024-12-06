@@ -43,8 +43,6 @@ def plot_states(dfs, nplots, var, labels, ylabels, linestyles, bounds=None):
     """
     fig, ax = plt.subplots(nplots, 1, sharex=True, figsize=(8, 12))
 
-
-
     for j, df in enumerate(dfs):
         for i in range(nplots):
             ax[i].step(df['time'], df['{}_{}'.format(var, i)], label=labels[j], linestyle=linestyles[j], where='post')
@@ -54,3 +52,32 @@ def plot_states(dfs, nplots, var, labels, ylabels, linestyles, bounds=None):
     ax[0].legend(bbox_to_anchor=(1.05, 1.1),)
     fig.tight_layout()
     return fig, ax
+
+
+def plot_cumulative_rewards(dfs, labels, ylabel, linestyles):
+    """
+    Plots the cumulative rewards of multiple dataframes.
+
+    Arguments:
+    dfs (list of pd.DataFrame): List of dataframes containing the data to plot.
+    nplots (int): Number of subplots to create.
+    var (str): Base name of the variable to plot.
+    labels (list of str): List of labels for each dataframe.
+    ylabels (list of str): List of y-axis labels for each subplot.
+    bounds (list of tuple, optional): List of bounds for each subplot. Each tuple contains (lower_bound, upper_bound). Default is None.
+
+    Returns:
+    fig (matplotlib.figure.Figure): The created figure.
+    ax (numpy.ndarray of matplotlib.axes._subplots.AxesSubplot): Array of subplot axes.
+    """
+    fig, ax = plt.subplots(sharex=True, figsize=(12, 8))
+    
+    for j, df in enumerate(dfs):
+        cumulative = df["econ_rewards"].cumsum()
+        ax.plot(df['time'], cumulative, label=labels[j], linestyle=linestyles[j])
+        ax.set_ylabel(ylabel)
+    
+    ax.legend(bbox_to_anchor=(1.05, 1.1))
+    fig.tight_layout()
+    return fig, ax
+
