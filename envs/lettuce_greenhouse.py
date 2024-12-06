@@ -284,7 +284,7 @@ class LettuceGreenhouse(gym.Env):
         """
         return np.zeros((self.nu, ))
 
-    def reset(self, seed: int = 10):
+    def reset(self, seed: int = 666):
         """
         Resets environment to starting state.
         Args:
