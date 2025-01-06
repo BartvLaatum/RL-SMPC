@@ -13,8 +13,8 @@ import numpy as np
 import gymnasium as gym
 from gymnasium import spaces
 
-from observations import BaseObservations, StandardObservations
-from utils import *
+from envs.observations import StandardObservations
+from common.utils import *
 
 observations = {"StandardObservations": StandardObservations}
 
@@ -230,6 +230,10 @@ class LettuceGreenhouse(gym.Env):
 
     def get_info(self):
         info =  {"econ_rewards": self.econ_rewards}
+        info["EPI"] = self.econ_rewards
+        info["temp_violation"] = self.temp_violation
+        info["rh_violation"] = self.rh_violation
+        info["co2_violation"] = self.co2_violation
         return info
 
     def _get_reward(self, y, u):
@@ -259,6 +263,9 @@ class LettuceGreenhouse(gym.Env):
         lowerbound[lowerbound < 0] = 0
         upperbound = y[1:] - self.obs_high[:]
         upperbound[upperbound < 0] = 0
+        self.co2_violation = lowerbound[0] + upperbound[0]
+        self.temp_violation = lowerbound[1] + upperbound[1]
+        self.rh_violation = lowerbound[2] + upperbound[2]
         return lowerbound, upperbound
 
     def terminal_state(self)-> bool:
@@ -301,7 +308,9 @@ class LettuceGreenhouse(gym.Env):
         self.econ_rewards = 0
         self.d = load_disturbances(self.weather_filename, self.L,self.start_day, self.h , self.Np, self.nd)
         y = self.get_y()
-
+        self.co2_violation = 0.
+        self.temp_violation = 0.
+        self.rh_violation = 0.
         # self.profits = np.zeros((self.N, ))
         # self.revenues = np.zeros((self.N, ))
         # self.co2_costs = np.zeros((self.N, ))
