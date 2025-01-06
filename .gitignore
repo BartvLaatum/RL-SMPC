@@ -1,3 +1,6 @@
+wandb/
+figures/
+train_data/
 *.ipynb
 *.pyc
 *.ipynb_checkpoints

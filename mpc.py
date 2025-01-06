@@ -6,7 +6,7 @@ import numpy as np
 import casadi as ca
 import pandas as pd
 
-from utils import *
+from common.utils import *
 
 class MPC:
     def __init__(

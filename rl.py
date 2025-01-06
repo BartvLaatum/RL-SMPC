@@ -4,31 +4,20 @@ import argparse
 import gc
 from copy import copy
 from pprint import pprint
-os.environ["TF_CPP_MIN_LOG_LEVEL"] = "3"
+# os.environ["TF_CPP_MIN_LOG_LEVEL"] = "3"
+
+import numpy as np
 
 from torch.nn.modules.activation import ReLU, SiLU, Tanh, ELU
+from torch.optim import Adam, RMSprop
 from stable_baselines3 import PPO, SAC
-from stable_baselines3.common.vec_env import VecNormalize, SubprocVecEnv, VecMonitor
+from stable_baselines3.common.noise import NormalActionNoise, OrnsteinUhlenbeckActionNoise
 
-from utils import *
+from common.rl_utils import *
 
-ACTIVATION_FN = {"ReLU": ReLU, "SiLU": SiLU, "Tanh":Tanh, "ELU": ELU}
-
-def get_obs_names(env):
-    """
-    Extracts and returns a list of observation names from the given environment.
-
-    Args:
-        env: The environment object which contains observation modules.
-
-    Returns:
-        A list of strings where each string is an observation name with underscores replaced by spaces.
-    """
-    obs_names = []
-    for obs_module in env.get_attr("observation_modules")[0]:
-        for name in obs_module.obs_names:
-            obs_names.append(name.replace("_", " "))
-    return obs_names
+ACTIVATION_FN = {"relu": ReLU, "silu": SiLU, "tanh":Tanh, "elu": ELU}
+OPTIMIZER = {"adam": Adam, "rmsprop": RMSprop}
+ACTION_NOISE = {"normalactionnoise": NormalActionNoise, "ornstein_uhlenbeck": OrnsteinUhlenbeckActionNoise}
 
 class RLExperimentManager:
     """Class to manage reinforcement learning experiments."""
@@ -46,12 +35,13 @@ class RLExperimentManager:
         model_seed,
         save_model=True,
         save_env=True,
-        hp_tuning=False
+        hp_tuning=False,
+        device="cpu"
     ):
         """
         Initialize the ExperimentManager with the given parameters.
 
-        Args:
+        Arguments:
             env_id (str): ID of the environment to train on.
             project (str): Wandb project name.
             group (str): Wandb group name.
@@ -65,11 +55,14 @@ class RLExperimentManager:
             save_model (bool): Whether to save the model.
             save_env (bool): Whether to save the environment.
         """
-
         self.env_id = env_id
         self.project = project
         self.env_params = env_params
-        self.hyperparameters=hyperparameters,
+        self.n_envs = hyperparameters["n_envs"]
+        self.total_timesteps = hyperparameters["total_timesteps"]
+        del hyperparameters["total_timesteps"] 
+        del hyperparameters["n_envs"]
+        self.hyperparameters=hyperparameters
         self.group = group
         self.n_eval_episodes = n_eval_episodes
         self.n_evals = n_evals
@@ -79,9 +72,11 @@ class RLExperimentManager:
         self.save_model = save_model
         self.save_env = save_env
         self.hp_tuning = hp_tuning
+        self.device = device
         self.models = {"ppo": PPO, "sac": SAC}
 
         self.model_class = self.models[self.algorithm.lower()]
+
 
         # Load environment and model parameters
         # self.env_config_path = f"gl_gym/configs/envs/"
@@ -101,6 +96,7 @@ class RLExperimentManager:
             )
 
             self.init_envs()
+            self.model_params = self.build_model_parameters()
             print(self.env.observation_space.shape)
             # Initialize the model
             self.initialise_model()
@@ -110,25 +106,26 @@ class RLExperimentManager:
         Initialize training and evaluation environments
         """
         self.monitor_filename = None
-        vec_norm_kwargs = {"norm_obs": True, "norm_reward": True, "clip_obs": 50_000}
+        vec_norm_kwargs = {"norm_obs": True,
+                           "norm_reward": True,
+                           "clip_obs": 50_000,
+                           "gamma": self.hyperparameters["gamma"]}
 
         # Setup new environment for training
-        self.env_params["training"] = True
         self.env = make_vec_env(
             self.env_id,
             self.env_params,
             seed=self.env_seed,
-            n_envs=self.num_cpus,
+            n_envs=self.n_envs,  # Number of environments to run in parallel
             monitor_filename=self.monitor_filename,
             vec_norm_kwargs=vec_norm_kwargs
         )
 
-        self.env_params["training"] = False
         self.eval_env = make_vec_env(
             self.env_id,
             self.env_params,
             seed=self.env_seed,
-            n_envs=1,               # Only one environment for evaluation at the moment
+            n_envs=1,                               # Only one 'parallel' environment for evaluation at the moment
             monitor_filename=self.monitor_filename,
             vec_norm_kwargs=vec_norm_kwargs,
             eval_env=True,
@@ -150,81 +147,116 @@ class RLExperimentManager:
             seed=self.model_seed,
             verbose=1,
             **self.model_params,
-            tensorboard_log=tensorboard_log
+            tensorboard_log=tensorboard_log,
+            device=self.device
         )
 
-    def build_model_hyperparameters(self, config):
-        """Build the model hyperparameters from the given config."""
+    def build_model_parameters(self):
+        model_params = self.hyperparameters.copy()
 
-        self.model_params["policy"] = config["policy"]
-        self.model_params["learning_rate"] = config["learning_rate"]
-        self.model_params["n_steps"] = config["n_steps"]
-        self.model_params["batch_size"] = config["batch_size"]
-        self.model_params["n_epochs"] = config["n_epochs"]
-        self.model_params["gamma"] = 1.0 - config["gamma_offset"]
-        self.model_params["gae_lambda"] = config["gae_lambda"]
-        self.model_params["clip_range"] = config["clip_range"]
-        self.model_params["ent_coef"] = config["ent_coef"]
-        self.model_params["vf_coef"] = config["vf_coef"]
+        if "policy_kwargs" in self.hyperparameters:
+            policy_kwargs = self.hyperparameters["policy_kwargs"].copy()  # Copy to avoid modifying the original
 
-        self.model_params["use_sde"] = config["use_sde"]
-        self.model_params["sde_sample_freq"] = config["sde_sample_freq"]
-        self.model_params["target_kl"] = config["target_kl"]
-        self.model_params["normalize_advantage"] = config["normalize_advantage"]
+            if "activation_fn" in policy_kwargs:
+                activation_fn_str = policy_kwargs["activation_fn"]
+                if activation_fn_str in ACTIVATION_FN:
+                    policy_kwargs["activation_fn"] = ACTIVATION_FN[activation_fn_str]
+                else:
+                    raise ValueError(f"Unsupported activation function: {activation_fn_str}")
 
-        policy_kwargs = {}
-        policy_kwargs["net_arch"] = {}
+            # Handle other necessary conversions (e.g., optimizers)
+            if "optimizer_class" in policy_kwargs:
+                optimizer_str = policy_kwargs["optimizer_class"]
+                if optimizer_str in OPTIMIZER:
+                    policy_kwargs["optimizer_class"] = OPTIMIZER[optimizer_str]
+                else:
+                    raise ValueError(f"Unsupported optimizer: {optimizer_str}")
+            model_params["policy_kwargs"] = policy_kwargs
+        if self.algorithm == "sac":
+            if "action_noise" in self.hyperparameters:
+                action_noise_key, noise_params = next(iter(self.hyperparameters["action_noise"].items()))
+                
+                if action_noise_key in ACTION_NOISE:
+                    action_noise = ACTION_NOISE[action_noise_key](
+                        mean=np.zeros(self.env.action_space.shape),
+                        sigma=noise_params["sigma"] * np.ones(self.env.action_space.shape)
+                    )
+                model_params["action_noise"] = action_noise
+        return model_params
+
+
+    # # def build_model_hyperparameters(self, config):
+    # #     """Build the model hyperparameters from the given config."""
+
+    # #     self.model_params["policy"] = config["policy"]
+    # #     self.model_params["learning_rate"] = config["learning_rate"]
+    # #     self.model_params["n_steps"] = config["n_steps"]
+    # #     self.model_params["batch_size"] = config["batch_size"]
+    # #     self.model_params["n_epochs"] = config["n_epochs"]
+    # #     self.model_params["gamma"] = 1.0 - config["gamma_offset"]
+    # #     self.model_params["gae_lambda"] = config["gae_lambda"]
+    # #     self.model_params["clip_range"] = config["clip_range"]
+    # #     self.model_params["ent_coef"] = config["ent_coef"]
+    # #     self.model_params["vf_coef"] = config["vf_coef"]
+
+    # #     self.model_params["use_sde"] = config["use_sde"]
+    # #     self.model_params["sde_sample_freq"] = config["sde_sample_freq"]
+    # #     self.model_params["target_kl"] = config["target_kl"]
+    # #     self.model_params["normalize_advantage"] = config["normalize_advantage"]
+
+    # #     policy_kwargs = {}
+    # #     policy_kwargs["net_arch"] = {}
         
-        if self.algorithm == "ppo":
-            policy_kwargs["net_arch"]["pi"] = [config["pi"]]*3
-            policy_kwargs["net_arch"]["vf"] = [config["vf"]]*3
+    # #     if self.algorithm == "ppo":
+    # #         policy_kwargs["net_arch"]["pi"] = [config["pi"]]*3
+    # #         policy_kwargs["net_arch"]["vf"] = [config["vf"]]*3
 
-        policy_kwargs["optimizer_kwargs"] = config["optimizer_kwargs"]
-        policy_kwargs["activation_fn"] = ACTIVATION_FN[config["activation_fn"]]
+    # #     policy_kwargs["optimizer_kwargs"] = config["optimizer_kwargs"]
+    # #     policy_kwargs["activation_fn"] = ACTIVATION_FN[config["activation_fn"]]
 
-        if self.algorithm == "recurrentppo":
-            policy_kwargs["net_arch"]["pi"] = [config["pi"]]*2
-            policy_kwargs["net_arch"]["vf"] = [config["vf"]]*2
-            policy_kwargs["lstm_hidden_size"] = config["lstm_hidden_size"]
-            policy_kwargs["enable_critic_lstm"] = config["enable_critic_lstm"]
-            if policy_kwargs["enable_critic_lstm"]:
-                policy_kwargs["shared_lstm"] = False
-            else:
-                policy_kwargs["shared_lstm"] = True
-        self.model_params["policy_kwargs"].update(policy_kwargs)
+    # #     if self.algorithm == "recurrentppo":
+    # #         policy_kwargs["net_arch"]["pi"] = [config["pi"]]*2
+    # #         policy_kwargs["net_arch"]["vf"] = [config["vf"]]*2
+    # #         policy_kwargs["lstm_hidden_size"] = config["lstm_hidden_size"]
+    # #         policy_kwargs["enable_critic_lstm"] = config["enable_critic_lstm"]
+    # #         if policy_kwargs["enable_critic_lstm"]:
+    # #             policy_kwargs["shared_lstm"] = False
+    # #         else:
+    # #             policy_kwargs["shared_lstm"] = True
+    # #     self.model_params["policy_kwargs"].update(policy_kwargs)
 
-    def run_single_sweep(self):
-        """
-        Main function for hyperparameter tuning.
-        """
-        # wandb.tensorboard.patch(root_logdir="...")
-        with wandb.init(sync_tensorboard=True) as run:
-            self.run = run
-            self.config = wandb.config
-            self.build_model_hyperparameters(self.config)
-            self.init_envs()
-            self.initialise_model()
-            print(self.model.policy) 
-            self.run_experiment()
+    # # def run_single_sweep(self):
+    # #     """
+    # #     Main function for hyperparameter tuning.
+    # #     """
+    # #     # wandb.tensorboard.patch(root_logdir="...")
+    # #     with wandb.init(sync_tensorboard=True) as run:
+    # #         self.run = run
+    # #         self.config = wandb.config
+    # #         self.build_model_hyperparameters(self.config)
+    # #         self.init_envs()
+    # #         self.initialise_model()
+    # #         print(self.model.policy) 
+    # #         self.run_experiment()
 
-    def hyperparameter_tuning(self):
-        """
-        Perform hyperparameter tuning for the model. Using the Sweep API from Weights and Biases.
-        """
-        continue_sweep = True
-        sweep_config = load_sweep_config(self.hyp_config_path, self.env_id, self.algorithm)
-        if continue_sweep:
-            wandb.agent("puk5fznz", project="dwarf-env", function=self.run_single_sweep, count=100)
-        else:
-            sweep_id = wandb.sweep(sweep=sweep_config, project=self.project)
-            wandb.agent(sweep_id, function=self.run_single_sweep, count=100)
+    # def hyperparameter_tuning(self):
+    #     """
+    #     Perform hyperparameter tuning for the model. Using the Sweep API from Weights and Biases.
+    #     """
+    #     continue_sweep = True
+    #     sweep_config = load_sweep_config(self.hyp_config_path, self.env_id, self.algorithm)
+    #     if continue_sweep:
+    #         wandb.agent("puk5fznz", project="dwarf-env", function=self.run_single_sweep, count=100)
+    #     else:
+    #         sweep_id = wandb.sweep(sweep=sweep_config, project=self.project)
+    #         wandb.agent(sweep_id, function=self.run_single_sweep, count=100)
 
     def run_experiment(self):
         """Run the experiment with the initialized model and environments."""
         model_log_dir = f"train_data/{self.project}/models/{self.run.name}/" if self.save_model else None
         env_log_dir = f"train_data/{self.project}/envs/{self.run.name}/" if self.save_env else None
 
-        eval_freq = self.total_timesteps // self.n_evals // self.num_cpus
+        eval_freq = self.total_timesteps // self.n_evals // self.n_envs
         save_name = "vec_norm"
 
         callbacks = create_callbacks(
@@ -235,9 +267,9 @@ class RLExperimentManager:
             model_log_dir,
             self.eval_env,
             run=self.run,
-            results=self.results,
+            results=None,
             save_env=self.save_env,
-            verbose=0 # verbose-2; debug messages.
+            verbose=1 # verbose-2; debug messages.
         )
 
         # Train the model
@@ -261,12 +293,13 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--env_id", type=str, default="LettuceGreenhouse", help="Environment ID")
     parser.add_argument("--algorithm", type=str, default="ppo", help="RL algorithm to use")
-    parser.add_argument("--project", type=str, default="casadi", help="Wandb project name")
+    parser.add_argument("--project", type=str, default="rlmpc", help="Wandb project name")
     parser.add_argument("--group", type=str, default="group1", help="Wandb group name")
     parser.add_argument("--n_eval_episodes", type=int, default=1, help="Number of episodes to evaluate the agent for")
     parser.add_argument("--n_evals", type=int, default=5, help="Number times we evaluate algorithm during training")
     parser.add_argument("--env_seed", type=int, default=666, help="Random seed for the environment for reproducibility")
     parser.add_argument("--model_seed", type=int, default=666, help="Random seed for the RL-model for reproducibility")
+    parser.add_argument("--device", type=str, default="cpu", help="The device to run the experiment on")
     parser.add_argument("--save_model", default=True, action=argparse.BooleanOptionalAction, help="Whether to save the model")
     parser.add_argument("--save_env", default=True, action=argparse.BooleanOptionalAction, help="Whether to save the environment")
     parser.add_argument("--hyperparameter_tuning", default=False, action=argparse.BooleanOptionalAction, help="Perform hyperparameter tuning")
@@ -280,7 +313,7 @@ if __name__ == "__main__":
     hyperparameters, rl_env_params = load_rl_params(args.env_id, args.algorithm)
     env_params.update(rl_env_params)
 
-    # # Initialize the experiment manager
+    # Initialize the experiment manager
     experiment_manager = RLExperimentManager(
         env_id=args.env_id,
         project=args.project,
@@ -294,7 +327,8 @@ if __name__ == "__main__":
         model_seed=args.model_seed,
         save_model=args.save_model,
         save_env=args.save_env,
-        hp_tuning=args.hyperparameter_tuning
+        hp_tuning=args.hyperparameter_tuning,
+        device=args.device
     )
 
     # if args.hyperparameter_tuning:
@@ -302,4 +336,4 @@ if __name__ == "__main__":
     #     experiment_manager.hyperparameter_tuning()
     # else:
     # # Run the experiment
-    #     experiment_manager.run_experiment()
+    experiment_manager.run_experiment()
