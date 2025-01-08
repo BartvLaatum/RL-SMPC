@@ -3,9 +3,10 @@ ny: 4
 nu: 3
 nd: 4
 h: 900.
-n_days: 2
-start_day: 29 
+n_days: 40
+start_day: 29
 x0: [0.0035, 1.e-3, 15, 0.008]
+u0: [0., 0., 0.]
 lb_pen_w: [5.e-5, 0.003333333333335, .02]
 ub_pen_w: [5.e-5, 0.005, .02]
 constraints:
@@ -23,5 +24,4 @@ constraints:
   temp_min: 10.         # lower bound on temperature                    [°C]                    6.5
   temp_max: 20.         # upper bound on temperature                    [°C]                    20
   rh_min: 0.            # lower bound on relative humidity              [#]                     0
-  rh_max: 75.          # upper bound on relative humidity              [#]                     70
-
+  rh_max: 75.          # upper bound on relative humidity               [#]                     70

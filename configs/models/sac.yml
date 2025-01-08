@@ -1,2 +1,37 @@
 LettuceGreenhouse:
-  Np: 2
+  Np: 1
+  obs_module: StandardObservations
+  obs_names: [deltaDW, yCo2, yTemp, yRh, uCo2, uVent, uHeat, timestep, dIGlob, dCo2, dTemp, dRh]
+  weather_filename: outdoorWeatherWurGlas2014.csv
+
+hyperparameters:
+  total_timesteps: 600_000
+  n_envs: 1
+  policy: MlpPolicy
+  learning_rate: 5.e-3
+  buffer_size: 100_000  
+  learning_starts: 36864 # let the agents randomly explore for episodes.
+  batch_size: 1024
+  tau: 0.005
+  gamma: 0.95
+  ent_coef: auto
+  train_freq: 1
+  gradient_steps: 1
+  action_noise: 
+    normalactionnoise:
+      sigma: 0.05
+  replay_buffer_class: null
+  replay_buffer_kwargs: null
+  optimize_memory_usage: False
+  target_update_interval: 1
+  use_sde: False
+  sde_sample_freq: -1
+  use_sde_at_warmup: False
+  stats_window_size: 100
+
+  policy_kwargs: {net_arch: {pi: [128, 128], qf: [128, 128]},
+                  optimizer_class: adam,
+                  activation_fn: tanh,
+          }
+
+# stats_window_size=100, tensorboard_log=None, policy_kwargs=None, verbose=0, seed=None, device='auto', _init_setup_model=True

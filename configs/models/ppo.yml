@@ -1,5 +1,28 @@
 LettuceGreenhouse:
-  Np: 2
+  Np: 1
   obs_module: StandardObservations
   obs_names: [deltaDW, yCo2, yTemp, yRh, uCo2, uVent, uHeat, timestep, dIGlob, dCo2, dTemp, dRh]
+  weather_filename: outdoorWeatherWurGlas2014.csv
 
+hyperparameters:
+  total_timesteps: 4_000_000
+  n_envs: 1
+  policy: MlpPolicy
+  n_steps: 4096   # 40*96=3840
+  batch_size: 1024
+  n_epochs: 10
+  gamma: 0.95
+  gae_lambda: 0.95
+  clip_range: 0.2
+  normalize_advantage: True
+  ent_coef: 0.0
+  vf_coef: 0.5
+  max_grad_norm: 0.5
+  use_sde: False
+  sde_sample_freq: -1
+  target_kl: null
+
+  policy_kwargs: {net_arch: {pi: [128, 128], vf: [128, 128]},
+                  optimizer_class: adam,
+                  activation_fn: tanh,
+          }
