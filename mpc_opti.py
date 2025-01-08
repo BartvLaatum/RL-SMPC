@@ -18,6 +18,7 @@ class MPC:
             h: float,
             n_days: int,
             x0: List[float],
+            u0: List[float],
             Np: int,
             Ns: int,
             start_day: int,
@@ -28,6 +29,7 @@ class MPC:
             nlp_opts: Dict[str, Any],
             ) -> None:
         self.x_initial = x0
+        self.u_initial = u0
         self.nx = nx
         self.nu = nu
         self.ny = ny
@@ -79,20 +81,20 @@ class MPC:
 
     def set_slack_variables(self, ll: int, p: Dict[str, Any]) -> None:
         # Penalty Constraints
-        self.opti.subject_to(self.P[:, ll] >= 0)
         # CO2 Lower Bound Penalty
+        self.opti.subject_to(self.P[:, ll] >= 0)
         self.opti.subject_to(self.P[0, ll] >= self.lb_pen_w[0,0] * (self.y_min[1] - self.ys[1, ll]))
-        # CO2 Upper Bound Penalty
         self.opti.subject_to(self.P[1, ll] >= self.ub_pen_w[0,0] * (self.ys[1, ll] - self.y_max[1]))
-        # Temperature Lower Bound Penalty
         self.opti.subject_to(self.P[2, ll] >= self.lb_pen_w[0,1] * (self.y_min[2] - self.ys[2, ll]))
-        # Temperature Upper Bound Penalty
         self.opti.subject_to(self.P[3, ll] >= self.ub_pen_w[0,1] * (self.ys[2, ll] - self.y_max[2]))
+        self.opti.subject_to(self.P[4, ll] >= self.lb_pen_w[0,2] * (self.y_min[3] - self.ys[3, ll]))
+        self.opti.subject_to(self.P[5, ll] >= self.ub_pen_w[0,2] * (self.ys[3, ll] - self.y_max[3]))
+        # CO2 Upper Bound Penalty
+        # Temperature Lower Bound Penalty
+        # Temperature Upper Bound Penalty
 
         # Humidity Lower Bound Penalty
-        self.opti.subject_to(self.P[4, ll] >= self.lb_pen_w[0,2] * (self.y_min[3] - self.ys[3, ll]))
         # Humidity Upper Bound Penalty
-        self.opti.subject_to(self.P[5, ll] >= self.ub_pen_w[0,2] * (self.ys[3, ll] - self.y_max[3]))
 
 
     def define_nlp(self, p: Dict[str, Any]) -> None:
@@ -123,23 +125,33 @@ class MPC:
         self.ds = self.opti.parameter(self.nd, self.Np)  # Disturbances
         self.init_u = self.opti.parameter(self.nu, 1)  # Initial control input
 
+        self.opti.set_value(self.x0, self.x_initial)
+        self.opti.set_value(self.ds, casadi.DM.zeros(self.ds.shape))
+        self.opti.set_value(self.init_u, self.u_initial)
+
         self.Js = 0
 
         for ll in range(self.Np):
             self.opti.subject_to(self.xs[:, ll+1] == self.F(self.xs[:, ll], self.us[:, ll], self.ds[:, ll], p))
             self.opti.subject_to(self.ys[:, ll] == self.g(self.xs[:, ll+1]))
-            
-            if ll < self.Np-1:
-                self.opti.subject_to(-self.du_max<=(self.us[:,ll+1] - self.us[:,ll]<=self.du_max))     # Change in input Constraint
             self.opti.subject_to(self.u_min <= (self.us[:,ll] <= self.u_max))                     # Input   Contraints
 
-            self.set_slack_variables(ll, p)
+            # self.set_slack_variables(ll, p)
+            self.opti.subject_to(self.P[:, ll] >= 0)
+            self.opti.subject_to(self.P[0, ll] >= self.lb_pen_w[0,0] * (self.y_min[1] - self.ys[1, ll]))
+            self.opti.subject_to(self.P[1, ll] >= self.ub_pen_w[0,0] * (self.ys[1, ll] - self.y_max[1]))
+            self.opti.subject_to(self.P[2, ll] >= self.lb_pen_w[0,1] * (self.y_min[2] - self.ys[2, ll]))
+            self.opti.subject_to(self.P[3, ll] >= self.ub_pen_w[0,1] * (self.ys[2, ll] - self.y_max[2]))
+            self.opti.subject_to(self.P[4, ll] >= self.lb_pen_w[0,2] * (self.y_min[3] - self.ys[3, ll]))
+            self.opti.subject_to(self.P[5, ll] >= self.ub_pen_w[0,2] * (self.ys[3, ll] - self.y_max[3]))
 
             # COST FUNCTION WITH PENALTIES
             delta_dw = self.xs[0, ll+1] - self.xs[0, ll]
             self.Js -= compute_economic_reward(delta_dw, p, self.h, self.us[:,ll])
-            self.Js += self.slack_penalty(self.P[:, ll])
-            # self.cost_function_with_P(p)
+            self.Js += (self.P[0, ll]+ self.P[1, ll]+self.P[2, ll]+self.P[3, ll]+self.P[4, ll]+self.P[5, ll])
+
+            if ll < self.Np-1:
+                self.opti.subject_to(-self.du_max<=(self.us[:,ll+1] - self.us[:,ll]<=self.du_max))     # Change in input Constraint
 
         # Constraints on intial state and input
         self.opti.subject_to(-self.du_max <= (self.us[:,0] - self.init_u <= self.du_max))   # Initial change in input Constraint
@@ -147,7 +159,27 @@ class MPC:
         self.opti.minimize(self.Js)
 
         # Solver options
-        self.opti.solver('ipopt', self.nlp_opts)
+        opts = {}
+        opts["print_time"] = True
+        opts["ipopt.print_level"] = False
+        opts["verbose"] = False
+        opts["ipopt.max_iter"] = 5000
+        opts["ipopt.nlp_scaling_method"] = 'gradient-based'
+        opts["ipopt.warm_start_entire_iterate"] = 'yes'
+        s_opts = {
+        "constr_viol_tol": 0.01,
+        "acceptable_constr_viol_tol": 0.1, 
+        "acceptable_tol": 1e-2, 
+    }
+        # self.opti.solver('ipopt', self.nlp_opts)
+        self.opti.solver('ipopt', opts, s_opts)
+        self.mpc_solver = self.opti.to_function(
+            'mpc_solver',
+            [self.x0, self.ds, self.init_u],
+            [self.us, self.xs, self.ys, self.Js],
+            ['x0','ds','u0'],
+            ['u_opt', 'x_opt', 'y_opt', 'J_opt']
+        )
 
     def slack_penalty(self, Pk) -> ca.SX:
         """
@@ -176,7 +208,6 @@ class MPC:
             float: Optimal cost value.
             dict: Solver output.
         """
-
         # Set parameter values
         self.opti.set_value(self.x0, x0_value)
         self.opti.set_value(self.ds, d_value)
@@ -272,17 +303,20 @@ class Experiment:
             np.ndarray: the gradient of the cost function
             np.ndarray: the hessian of the cost function
         """
-
         for kk in range(self.mpc.N):
 
             print(f"Step: {kk}")
-            us_opt, Js_opt, sol, eco_rew = mpc.solve_nlp_problem(self.x[:, kk], self.u[:, kk], self.d[:, kk:kk+self.mpc.Np])
-            # if the solver fails, use the previous control input
+            us_opt, xs_opt, ys_opt, J_opt = mpc.mpc_solver(self.x[:, kk], self.d[:, kk:kk+self.mpc.Np], self.u[:, kk])
+            self.u[:, kk+1] = us_opt[:, 0].toarray().ravel()
+            # self.update_results(us_opt, Js_opt, sol, eco_rew, kk)
 
-            self.u[:, kk+1] = us_opt[:, 0]
-            self.update_results(us_opt, Js_opt, sol, eco_rew, kk)
             self.x[:, kk+1] = mpc.F(self.x[:, kk], self.u[:, kk+1], self.d[:, kk], p).toarray().ravel()
             self.y[:, kk+1] = mpc.g(self.x[:, kk+1]).toarray().ravel()
+
+            delta_dw = self.x[:, kk+1] - self.x[:, kk]
+            rew = compute_economic_reward(delta_dw, get_parameters(), self.h, us_opt[:, 0])
+
+            self.update_results(us_opt, J_opt, [], 0, kk)
 
     def update_results(self, us_opt, Js_opt, sol, eco_rew, step):
         """
@@ -322,7 +356,7 @@ class Experiment:
         data["econ_rewards"] = self.rewards.flatten()
 
         df = pd.DataFrame(data, columns=data.keys())
-        df.to_csv(f"data/{self.project_name}/{self.save_name}.csv", index=False)
+        df.to_csv(f"data/{self.project_name}/mpc/{self.save_name}.csv", index=False)
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
