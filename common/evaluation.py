@@ -73,16 +73,25 @@ def evaluate_policy(
     n_envs = env.num_envs
     episode_rewards = []
     episode_lengths = []
+    episode_actions = []
+    episode_obs = []
 
     episode_counts = np.zeros(n_envs, dtype="int")
     # Divides episodes among different sub environments in the vector as evenly as possible
     episode_count_targets = np.array([(n_eval_episodes + i) // n_envs for i in range(n_envs)], dtype="int")
 
+    timestep = 0
+    N = env.get_attr("N", indices=0)[0]
+
     current_rewards = np.zeros(n_envs)
     current_lengths = np.zeros(n_envs, dtype="int")
+    current_actions = np.zeros((n_envs, N, env.action_space.shape[0]))
+    current_obs = np.zeros((n_envs, N, env.observation_space.shape[0]))
+    
     observations = env.reset()
     states = None
     episode_starts = np.ones((env.num_envs,), dtype=bool)
+
     while (episode_counts < episode_count_targets).any():
         actions, states = model.predict(
             observations,  # type: ignore[arg-type]
@@ -90,9 +99,14 @@ def evaluate_policy(
             episode_start=episode_starts,
             deterministic=deterministic,
         )
+        current_obs[:, timestep, :] = env.unnormalize_obs(observations)
         new_observations, rewards, dones, infos = env.step(actions)
+        current_actions[:, timestep, :] = np.array([info["controls"] for info in infos])
+
         current_rewards += rewards
         current_lengths += 1
+        timestep += 1
+        
         for i in range(n_envs):
             if episode_counts[i] < episode_count_targets[i]:
                 # unpack values so that the callback can access the local variables
@@ -100,6 +114,7 @@ def evaluate_policy(
                 done = dones[i]
                 info = infos[i]
                 episode_starts[i] = done
+                current_actions[i]
 
                 if callback is not None:
                     callback(locals(), globals())
@@ -115,12 +130,20 @@ def evaluate_policy(
                             # has been wrapped with it. Use those rewards instead.
                             episode_rewards.append(info["episode"]["r"])
                             episode_lengths.append(info["episode"]["l"])
-                            # Only increment at the real end of an episode
+                            episode_actions.append(current_actions[i].copy())
+                            episode_obs.append(current_obs[i].copy())
+
+                            # Only increment at `the real end of an episode
                             episode_counts[i] += 1
+                            timestep = 0
                     else:
                         episode_rewards.append(current_rewards[i])
                         episode_lengths.append(current_lengths[i])
+                        episode_actions.append(current_actions[i].copy())
+                        episode_obs.append(current_obs[i].copy())
                         episode_counts[i] += 1
+                        timestep = 0
+
                     current_rewards[i] = 0
                     current_lengths[i] = 0
 
@@ -129,10 +152,15 @@ def evaluate_policy(
         if render:
             env.render()
 
+    add_info = {
+        "observations": episode_obs,
+        "actions": episode_actions
+    }
+
     mean_reward = np.mean(episode_rewards)
     std_reward = np.std(episode_rewards)
     if reward_threshold is not None:
         assert mean_reward > reward_threshold, "Mean reward below threshold: " f"{mean_reward:.2f} < {reward_threshold:.2f}"
     if return_episode_rewards:
-        return episode_rewards, episode_lengths
-    return mean_reward, std_reward
+        return episode_rewards, episode_lengths, add_info
+    return mean_reward, std_reward, add_info

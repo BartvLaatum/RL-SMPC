@@ -177,7 +177,7 @@ def DefineParameters():
     p["R"] = 8314           # 4     # ideal gas constant                            [J K^{-1} kmol^{-1}] 	8314            4
     p["T"] = 273.15         # 5     # conversion from C to K                        [K]                     273.15          5
 
-    p["leak"] = 0.75e-5     # 6     # ventilation leakage through the cover         [m s^{-1}]              0.75e-4         6
+    p["leak"] = 0.75e-4     # 6     # ventilation leakage through the cover         [m s^{-1}]              0.75e-4         6
     p["CO2cap"] = 4.1       # 7     # CO2 capacity of the greenhouse                [m^3{air} m^{-2}{gh}]   4.1             7
     p["H2Ocap"] = 4.1       # 8		# Vapor capacity of the greenhouse              [m^3{air} m^{-2}{gh}]   4.1             8
     p["aCap"] = 3e4         # 9     # effective heat capacity of the greenhouse air [J m^{-2}{gh} °C^{-1}]  3e4             9
@@ -195,7 +195,7 @@ def DefineParameters():
     p["photCO2_3"] = 6.29e-4 	# 20    # temperature influence on photosynthesis   [m s^{-1}]              6.29e-4         20
     p["photGamma"] = 5.2e-5 	# 21    # carbon dioxide compensation point         [kg{CO2} m^{-3}{air}]   5.2e-5          21
     p["evap_c_a"] = 3.6e-3 		# 22    # coefficient of leaf-air vapor flow        [m s^{-1}]              3.6e-3          22
-    p["energyCost"] = 0.1281    # 23     # price of energy                               [€ J^{-1}]              6.35e-9 [Dfl J^{-1}] (division by 2.20371 represents currency conversion)   23
+    p["energyCost"] = 0.1281    # 23    # price of energy                          [€ J^{-1}]              6.35e-9 [Dfl J^{-1}] (division by 2.20371 represents currency conversion)   23
     p["co2Cost"] = 0.1906       # 24    # price of CO2                                  [€ kg^{-1}{CO2}]        42e-2 [Dfl kg^{-1}{CO2}] (division by 2.20371 represents currency conversion)   24
     p["productPrice1"] = 1.8/2.20371 # 25   # parameter for price of product                [€ m^{-2}{gh}]          1.8 [Dfl kg^{-1}{gh}] (division by 2.20371 represents currency conversion)  25
     p["productPrice2"] = 22.285125   # 26   # parameter for price of product                [€ kg^{-1}{gh} m^{-2}{gh}] 16 (division by 2.20371 represents currency conversion)  26
@@ -283,8 +283,6 @@ def define_model(h):
     # xnext_limited = casadi.fmin(casadi.fmax(xnext_unbounded, xmin_cas), xmax_cas)
     F = casadi.Function("F", [x, u, d, params], [res["xf"]], ["x", "u", "d", "p"], ["xnext"])    #Discretized Function
     return F, g
-
-
 
 
 def compute_economic_reward(delta_dw, params, h, u):
