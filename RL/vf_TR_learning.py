@@ -1,4 +1,4 @@
-from vf_TR_class import value_function_TR
+from RL.vf_TR_class import value_function_TR
 import datetime, copy
 import torch
 import argparse

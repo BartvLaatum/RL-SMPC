@@ -15,9 +15,9 @@ from stable_baselines3.common.vec_env import DummyVecEnv, VecNormalize
 # from torch.utils.tensorboard import SummaryWriter
 
 
-class neural_net (torch.nn.Module):
+class neural_net(torch.nn.Module):
     def __init__(self,input_dim, hidden_dim,hidden_layers) -> None:
-        super(neural_net,self).__init__()
+        super(neural_net, self).__init__()
         self.hh = hidden_layers
         self.fc1 = torch.nn.Linear(input_dim, hidden_dim) 
         self.fc2 = torch.nn.Linear(hidden_dim, hidden_dim) 
