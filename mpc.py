@@ -18,6 +18,7 @@ class MPC:
             h: float,
             n_days: int,
             x0: List[float],
+            u0: List[float],
             Np: int,
             Ns: int,
             start_day: int,
@@ -28,7 +29,7 @@ class MPC:
             nlp_opts: Dict[str, Any],
             ) -> None:
         self.x_initial = x0
-        
+        self.u_initial = u0
         self.nx = nx
         self.nu = nu
         self.ny = ny
@@ -184,6 +185,7 @@ class MPC:
         lbg.extend([0] * self.nx)
         ubg.extend([0] * self.nx)
 
+        Js = 0
 
         for ll in range(self.Np):
             # State Transition Constraint
@@ -209,6 +211,10 @@ class MPC:
             lbg.extend(P_lbg)
             ubg.extend(P_ubg)
 
+            delta_dw = self.xs[0, ll+1] - self.xs[0, ll]
+            Js -= compute_economic_reward(delta_dw, p, self.h, self.us[:,ll])
+            Js += (self.P[0, ll]+ self.P[1, ll]+self.P[2, ll]+self.P[3, ll]+self.P[4, ll]+self.P[5, ll])
+
             # Change in Input Constraints
             if ll < self.Np - 1:
                 du = self.us[:, ll + 1] - self.us[:, ll]
@@ -221,9 +227,6 @@ class MPC:
         g.append(du0)
         lbg.extend(-self.du_max)
         ubg.extend(self.du_max)
-
-        # Cost Function
-        Js = self.cost_function_with_P(p)
 
         # Decision Variable Vector
         w = ca.vertcat(
@@ -296,25 +299,6 @@ class MPC:
             # Update Initial Control Input
             self.w0 = w_opt
 
-            # fig, ax = plt.subplots(4, 4)
-
-            # t = np.arange(0, 4)
-
-            # # ax[0,0].step(t, ys_opt[2, :])
-            # for i in range(self.ny):
-            #     ax[0, i].step(t, xs_opt[i, :t.size])
-
-            # for i in range(self.ny):
-            #     ax[1, i].step(t, ys_opt[i, :t.size])
-            # for i in range(3):
-            #     ax[2, i].step(t, us_opt[i, :t.size])
-            # for i in range(3):
-            #     ax[3, i+1].step(t, P_opt[i*2, :t.size])
-            #     ax[3, i+1].step(t, P_opt[i*2+1, :t.size])
-            # fig.savefig(f"resultst={step}.png")
-            # plt.show()
-
-
         except RuntimeError as e:
             print("Solver failed to converge")
             sol = None
@@ -385,10 +369,8 @@ class Experiment:
             self.x[:, kk+1] = mpc.F(self.x[:, kk], self.u[:, kk+1], self.d[:, kk], p).toarray().ravel()
             self.y[:, kk] = mpc.g(self.x[:, kk+1]).toarray().ravel()
 
-
     def update_results(self, us_opt, Js_opt, sol, step):
         """
-
         Args:
             uopt (_type_): _description_
             J (_type_): _description_
@@ -423,7 +405,7 @@ class Experiment:
         data["J"] = self.J.flatten()
 
         df = pd.DataFrame(data, columns=data.keys())
-        df.to_csv(f"data/{self.project_name}/{self.save_name}.csv", index=False)
+        df.to_csv(f"data/{self.project_name}/mpc/{self.save_name}.csv", index=False)
 
 
 if __name__ == "__main__":
