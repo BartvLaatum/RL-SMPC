@@ -107,8 +107,8 @@ class RLExperimentManager:
         """
         self.monitor_filename = None
         vec_norm_kwargs = {"norm_obs": True,
-                           "norm_reward": True,
-                           "clip_obs": 50_000,
+                           "norm_reward": False,
+                           "clip_obs": 10,
                            "gamma": self.hyperparameters["gamma"]}
 
         # Setup new environment for training
