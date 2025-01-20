@@ -11,7 +11,7 @@ import l4casadi as l4c
 from stable_baselines3 import PPO, SAC
 from stable_baselines3.common.vec_env import DummyVecEnv, VecNormalize
 
-from mpc_opti import MPC
+from mpc import MPC
 from envs.lettuce_greenhouse import LettuceGreenhouse
 from RL.rl_func_approximators import qvalue_fn, actor_fn
 from common.rl_utils import load_rl_params
