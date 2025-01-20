@@ -93,8 +93,8 @@ def save_results(env, save_path, x, u, y, rewards, epi):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument("--env_id", type=str, default="LettuceGreenhouse", help="Environment ID")
     parser.add_argument("--project", type=str, default="matching-thesis", help="Name of the project (in wandb)")
+    parser.add_argument("--env_id", type=str, default="LettuceGreenhouse", help="Environment ID")
     parser.add_argument("--model_name", type=str, default="cosmic-music-45", help="Name of the trained RL model")
     parser.add_argument("--algorithm", type=str, default="ppo", help="Name of the algorithm (ppo or sac)")
     parser.add_argument("--stochastic", action="store_true", help="Whether to use stochastic control")
