@@ -374,9 +374,9 @@ class RLExperimentManager:
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
+    parser.add_argument("--project", type=str, default="rlmpc", help="Wandb project name")
     parser.add_argument("--env_id", type=str, default="LettuceGreenhouse", help="Environment ID")
     parser.add_argument("--algorithm", type=str, default="ppo", help="RL algorithm to use")
-    parser.add_argument("--project", type=str, default="rlmpc", help="Wandb project name")
     parser.add_argument("--group", type=str, default="group1", help="Wandb group name")
     parser.add_argument("--n_eval_episodes", type=int, default=1, help="Number of episodes to evaluate the agent for")
     parser.add_argument("--n_evals", type=int, default=5, help="Number times we evaluate algorithm during training")

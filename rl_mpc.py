@@ -1,12 +1,14 @@
-from typing import Any, Dict, List
+import os
 import argparse
-from tqdm import tqdm
+from typing import Any, Dict, List
 
 import numpy as np
 import pandas as pd
+from tqdm import tqdm
 import torch as th
 import casadi as ca
 import l4casadi as l4c
+
 
 from stable_baselines3 import PPO, SAC
 from stable_baselines3.common.vec_env import DummyVecEnv, VecNormalize
@@ -514,7 +516,7 @@ class Experiment:
         self.rewards[:, ll] = eco_rew
         
 
-    def save_results(self):
+    def save_results(self, save_path):
         """
         """
         data = {}
@@ -537,21 +539,10 @@ class Experiment:
         data["econ_rewards"] = self.rewards.flatten()
 
         df = pd.DataFrame(data, columns=data.keys())
-        df.to_csv(f"data/{self.project_name}/mpc/{self.save_name}.csv", index=False)
+        df.to_csv(f"{save_path}/{self.save_name}.csv", index=False)
 
 
 if __name__ == "__main__":
-    import random
-    import os
-
-    # Seed Settings
-    th.manual_seed(4)
-    np.random.seed(4)
-    random.seed(4)
-    os.environ['PYTHONHASHSEED'] = str(4)
-    th.cuda.manual_seed(4)
-    th.backends.cudnn.deterministic = True
-
     parser = argparse.ArgumentParser()
     parser.add_argument("--project", type=str, default="matching-thesis")
     parser.add_argument("--env_id", type=str, default="LettuceGreenhouse")
@@ -562,28 +553,39 @@ if __name__ == "__main__":
     parser.add_argument("--use_trained_vf", action="store_true")
     parser.add_argument("--stochastic", action="store_true")
     args = parser.parse_args()
-    path = f"train_data/{args.project}/{args.algorithm}"
-
     if args.stochastic:
-        rl_model_path = f"{path}/stochastic/models/{args.model_name}/best_model.zip"
-        vf_path = f"{path}/stochastic/models/{args.model_name}/vf.zip"
-        env_path = f"{path}/stochastic/envs/{args.model_name}/best_vecnormalize.pkl"
+        load_path = f"train_data/{args.project}/{args.algorithm}/stochastic"
     else:
-        rl_model_path = f"{path}/deterministic/models/{args.model_name}/best_model.zip"
-        vf_path = f"{path}/deterministic/models/{args.model_name}/vf.zip"
-        env_path = f"{path}/deterministic/envs/{args.model_name}/best_vecnormalize.pkl"
+        load_path = f"train_data/{args.project}/{args.algorithm}/deterministic"
+    save_path = f"data/{args.project}/rlmpc"
+    os.makedirs(save_path, exist_ok=True)
+
+    rl_model_path = f"{load_path}/models/{args.model_name}/best_model.zip"
+    vf_path = f"{load_path}/models/{args.model_name}/vf.zip"
+    env_path = f"{load_path}/envs/{args.model_name}/best_vecnormalize.pkl"
 
     # load the config file
     env_params = load_env_params(args.env_id)
     mpc_params = load_mpc_params(args.env_id)
 
+    # load the RL parameters
     hyperparameters, rl_env_params = load_rl_params(args.env_id, args.algorithm)
     rl_env_params.update(env_params)
 
+    # define the RL-MPC
     p = get_parameters()
-    rl_mpc = RLMPC(env_params, mpc_params, rl_env_params, env_path, rl_model_path, vf_path, use_trained_vf=True)
+    rl_mpc = RLMPC(
+        env_params, 
+        mpc_params, 
+        rl_env_params, 
+        env_path,
+        rl_model_path,
+        vf_path,
+        use_trained_vf=args.use_trained_vf
+    )
     rl_mpc.define_nlp(p)
 
+    # run the experiment
     exp = Experiment(rl_mpc, args.save_name, args.project, args.weather_filename)
     exp.solve_nmpc(p)
-    exp.save_results()
+    exp.save_results(save_path)

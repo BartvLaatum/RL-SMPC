@@ -1,9 +1,10 @@
+import os
 import argparse
 from typing import Any, Dict, List
-from tqdm import tqdm
 
 import numpy as np
 import pandas as pd
+from tqdm import tqdm
 import casadi as ca
 
 from common.utils import load_disturbances, compute_economic_reward, get_parameters, \
@@ -284,7 +285,7 @@ class Experiment:
         self.rewards[:, step] = eco_rew
         
 
-    def save_results(self):
+    def save_results(self, save_path):
         """
         """
         data = {}
@@ -307,7 +308,7 @@ class Experiment:
         data["econ_rewards"] = self.rewards.flatten()
 
         df = pd.DataFrame(data, columns=data.keys())
-        df.to_csv(f"data/{self.project_name}/mpc/{self.save_name}.csv", index=False)
+        df.to_csv(f"{save_path}/{self.save_name}.csv", index=False)
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
@@ -316,6 +317,9 @@ if __name__ == "__main__":
     parser.add_argument("--save_name", type=str)
     parser.add_argument("--weather_filename", default="outdoorWeatherWurGlas2014.csv", type=str)
     args = parser.parse_args()
+
+    save_path = f"data/{args.project}/mpc"
+    os.makedirs(save_path, exist_ok=True)
 
     env_params = load_env_params(args.env_id)
     mpc_params = load_mpc_params(args.env_id)
@@ -326,4 +330,4 @@ if __name__ == "__main__":
     mpc.define_nlp(p)
     exp = Experiment(mpc, args.save_name, args.project, args.weather_filename)
     exp.solve_nmpc(p)
-    exp.save_results()
+    exp.save_results(save_path)
