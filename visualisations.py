@@ -173,4 +173,4 @@ ylabels = [r"Glob rad (W/m$^2$)", r"CO$_2$ (ppm)", r"Temp ($^\circ$C)", r"RH (%)
 bounds = [None, None, None, None]
 
 # Compare the cumulative rewards of several implementations
-plot_cumulative_rewards(dfs[:], labels, colors, "Economic reward (EU/m2)", ["-","-", "-", "-"])
+plot_cumulative_rewards(dfs[:], labels, colors, "Economic reward (EU/m2)", ["-","-", "-", "-", "-"])
