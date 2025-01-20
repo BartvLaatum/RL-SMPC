@@ -409,6 +409,7 @@ if __name__ == "__main__":
         algorithm=args.algorithm,
         env_seed=args.env_seed,
         model_seed=args.model_seed,
+        stochastic=args.stochastic,
         save_model=args.save_model,
         save_env=args.save_env,
         hp_tuning=args.hyperparameter_tuning,

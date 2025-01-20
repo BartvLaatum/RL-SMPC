@@ -1,4 +1,5 @@
 import argparse
+import os
 from os.path import join
 
 import pandas as pd
@@ -7,14 +8,13 @@ import numpy as np
 from stable_baselines3 import PPO, SAC
 from stable_baselines3.common.vec_env import VecNormalize, DummyVecEnv
 
-from common.evaluation import evaluate_policy
 from common.rl_utils import make_vec_env, load_rl_params
-from common.utils import co2dens2ppm, vaporDens2rh, load_env_params
+from common.utils import load_env_params
 
 ALG = {"ppo": PPO, 
        "sac": SAC}
 
-def load_env(env_id, model_name, env_params, alg, stochastic):
+def load_env(env_id, model_name, env_params, load_path):
     # Setup new environment for training
     env = make_vec_env(
         env_id, 
@@ -25,10 +25,7 @@ def load_env(env_id, model_name, env_params, alg, stochastic):
         vec_norm_kwargs=None,
         eval_env=True
     )
-    if stochastic:
-        env = VecNormalize.load(join(path + f"{alg}/stochastic/envs", f"{model_name}/best_vecnormalize.pkl"), env)
-    else:
-        env = VecNormalize.load(join(path + f"{alg}/deterministic/envs", f"{model_name}/best_vecnormalize.pkl"), env)
+    env = VecNormalize.load(join(load_path + f"/envs", f"{model_name}/best_vecnormalize.pkl"), env)
     return env
 
 def evaluate(model, env):
@@ -69,7 +66,7 @@ def evaluate(model, env):
         u[:, timestep+1] = infos[0]["controls"]
     return x, u, y, episode_rewards, episode_epi
 
-def save_results(env, x, u, y, rewards, epi):
+def save_results(env, save_path, x, u, y, rewards, epi):
     """
     """
     data = {}
@@ -92,7 +89,7 @@ def save_results(env, x, u, y, rewards, epi):
 
     data["econ_rewards"] = epi.flatten()
     df = pd.DataFrame(data, columns=data.keys())
-    df.to_csv(f"data/{args.project}/rl/{args.model_name}.csv", index=False)
+    df.to_csv(f"{save_path}/{args.model_name}.csv", index=False)
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
@@ -103,17 +100,20 @@ if __name__ == "__main__":
     parser.add_argument("--stochastic", action="store_true", help="Whether to use stochastic control")
     args = parser.parse_args()
 
-    path = f"train_data/{args.project}/"
+    if args.stochastic:
+        load_path = f"train_data/{args.project}/{args.algorithm}/stochastic/"
+    else:
+        load_path = f"train_data/{args.project}/{args.algorithm}/deterministic/"
+
+    save_path = f"data/{args.project}/rl"
+    os.makedirs(save_path, exist_ok=True)
 
     env_params = load_env_params(args.env_id)
     hyperparameters, rl_env_params = load_rl_params(args.env_id, args.algorithm)
     env_params.update(rl_env_params)
-    eval_env = load_env(args.env_id, args.model_name, env_params, args.algorithm, args.stochastic)
+    eval_env = load_env(args.env_id, args.model_name, env_params, load_path)
 
-    if args.stochastic:
-        model = ALG[args.algorithm].load(join(path + f"{args.algorithm}/stochastic/models", f"{args.model_name}/best_model.zip"), device="cpu")
-    else:
-        model = ALG[args.algorithm].load(join(path + f"{args.algorithm}/deterministic/models", f"{args.model_name}/best_model.zip"), device="cpu")
+    model = ALG[args.algorithm].load(join(load_path + f"models", f"{args.model_name}/best_model.zip"), device="cpu")
 
     results = evaluate(model, eval_env)
-    save_results(eval_env, *results)
+    save_results(eval_env, save_path, *results)
