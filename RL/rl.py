@@ -34,6 +34,7 @@ class RLExperimentManager:
         algorithm,
         env_seed,
         model_seed,
+        stochastic,
         save_model=True,
         save_env=True,
         hp_tuning=False,
@@ -61,6 +62,7 @@ class RLExperimentManager:
         self.env_params = env_params
         self.n_envs = hyperparameters["n_envs"]
         self.total_timesteps = hyperparameters["total_timesteps"]
+        self.stochastic = stochastic
         del hyperparameters["total_timesteps"] 
         del hyperparameters["n_envs"]
         self.hyperparameters=hyperparameters
@@ -251,8 +253,12 @@ class RLExperimentManager:
 
     def run_experiment(self):
         """Run the experiment with the initialized model and environments."""
-        model_log_dir = f"train_data/{self.project}/models/{self.run.name}/" if self.save_model else None
-        env_log_dir = f"train_data/{self.project}/envs/{self.run.name}/" if self.save_env else None
+        if self.stochastic:
+            model_log_dir = f"train_data/{self.project}/{self.algorithm}/stochastic/models/{self.run.name}/" if self.save_model else None
+            env_log_dir = f"train_data/{self.project}/{self.algorithm}/stochastic/envs/{self.run.name}/" if self.save_env else None
+        else:
+            model_log_dir = f"train_data/{self.project}/{self.algorithm}/deterministic/models/{self.run.name}/" if self.save_model else None
+            env_log_dir = f"train_data/{self.project}/{self.algorithm}/deterministic/envs/{self.run.name}/" if self.save_env else None
 
         eval_freq = self.total_timesteps // self.n_evals // self.n_envs
         save_name = "vec_norm"
@@ -297,6 +303,7 @@ if __name__ == "__main__":
     parser.add_argument("--n_evals", type=int, default=5, help="Number times we evaluate algorithm during training")
     parser.add_argument("--env_seed", type=int, default=666, help="Random seed for the environment for reproducibility")
     parser.add_argument("--model_seed", type=int, default=666, help="Random seed for the RL-model for reproducibility")
+    parser.add_argument("--stochastic", action="store_true", help="Whether to run the experiment in stochastic mode")
     parser.add_argument("--device", type=str, default="cpu", help="The device to run the experiment on")
     parser.add_argument("--save_model", default=True, action=argparse.BooleanOptionalAction, help="Whether to save the model")
     parser.add_argument("--save_env", default=True, action=argparse.BooleanOptionalAction, help="Whether to save the environment")
