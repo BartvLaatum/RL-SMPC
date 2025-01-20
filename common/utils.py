@@ -1,6 +1,9 @@
-import numpy as np
-import casadi 
+from typing import Any, Dict
+import yaml
 import math
+
+import casadi 
+import numpy as np
 import pandas as pd
 
 def load_disturbances(
@@ -284,7 +287,6 @@ def define_model(h):
     F = casadi.Function("F", [x, u, d, params], [res["xf"]], ["x", "u", "d", "p"], ["xnext"])    #Discretized Function
     return F, g
 
-
 def compute_economic_reward(delta_dw, params, h, u):
     """
     Economic cost function. Can be used either by MPC or RL.
@@ -301,3 +303,31 @@ def compute_economic_reward(delta_dw, params, h, u):
     return params[26] * (delta_dw) \
         - 1e-6 * h * params[24] * u[0] \
         - h / 3600 * params[23] * 1e-3 * u[2]
+
+def load_env_params(env_id: str) -> Dict[str, Any]:
+    """
+    Load environment parameters from a yaml file.
+    Arguments:
+        file_name (str): Name of the MAT file containing the environment parameters.
+    Returns:
+        Dict[str, Any]: Dictionary of environment parameters.
+    """    
+    # load the config file
+    with open(f"configs/envs/{env_id}.yml", "r") as file:
+        env_params = yaml.safe_load(file)
+
+    return env_params
+
+def load_mpc_params(env_id: str) -> Dict[str, Any]:
+    """
+    Load MPC parameters from a yaml file.
+    Arguments:
+        file_name (str): Name of the MAT file containing the MPC parameters.
+    Returns:
+        Dict[str, Any]: Dictionary of MPC parameters.
+    """    
+    # load mpc parameters
+    with open("configs/models/mpc.yml", "r") as file:
+        mpc_params = yaml.safe_load(file)
+
+    return mpc_params[env_id]

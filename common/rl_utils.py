@@ -1,29 +1,18 @@
+import os
 from typing import Dict, Any, Tuple, List
+
 import yaml
 import wandb
-import os
+import numpy as np
 
 from wandb.integration.sb3 import WandbCallback
 from stable_baselines3.common.callbacks import BaseCallback
 from stable_baselines3.common.vec_env import VecEnv, SubprocVecEnv, VecNormalize, VecMonitor
 
-from common.callbacks import SaveVecNormalizeCallback, CustomWandbCallback
 from common.results import Results
+from common.callbacks import SaveVecNormalizeCallback, CustomWandbCallback
 from envs.lettuce_greenhouse import LettuceGreenhouse
 
-def load_env_params(env_id: str) -> Dict[str, Any]:
-    """
-    Load environment parameters from a yaml file.
-    Arguments:
-        file_name (str): Name of the MAT file containing the environment parameters.
-    Returns:
-        Dict[str, Any]: Dictionary of environment parameters.
-    """    
-    # load the config file
-    with open(f"configs/envs/{env_id}.yml", "r") as file:
-        env_params = yaml.safe_load(file)
-
-    return env_params
 
 def load_rl_params(env_id: str, algorithms: str) -> Tuple[Dict[str, Any], Dict[str, Any]]:
     """
@@ -137,3 +126,7 @@ def create_callbacks(n_eval_episodes: int,
                                         verbose=verbose)
     wandbcallback = WandbCallback(verbose=verbose)
     return [eval_callback, wandbcallback]
+
+def normalize_state(x, x_min ,x_max):
+    state_norm = ((x - x_min)/(x_max - x_min))*(10) - 5
+    return np.array(state_norm, dtype=np.float32)

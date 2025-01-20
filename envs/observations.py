@@ -45,7 +45,7 @@ class StandardObservations(BaseObservations):
     def observation_space(self) -> spaces.Box:
         return spaces.Box(low=-1e-4, high=1e4, shape=(self.n_obs,), dtype=np.float32)
 
-    def compute_obs(self, yk, prev_dw, uk, dk, timestep) -> np.ndarray:
+    def compute_obs(self, yk, uk, dk, timestep) -> np.ndarray:
         """
         Compute, and retrieve observations from GreenLight and the weather.
         """

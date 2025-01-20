@@ -14,6 +14,7 @@ from stable_baselines3 import PPO, SAC
 from stable_baselines3.common.noise import NormalActionNoise, OrnsteinUhlenbeckActionNoise
 
 from common.rl_utils import *
+from common.utils import load_env_params
 
 ACTIVATION_FN = {"relu": ReLU, "silu": SiLU, "tanh":Tanh, "elu": ELU}
 OPTIMIZER = {"adam": Adam, "rmsprop": RMSprop}
@@ -80,8 +81,8 @@ class RLExperimentManager:
 
         # Load environment and model parameters
         # self.env_config_path = f"gl_gym/configs/envs/"
-        self.model_config_path = f"gl_gym/configs/agents/"
-        self.hyp_config_path = f"gl_gym/configs/sweeps/"
+        self.model_config_path = f"configs/agents/"
+        self.hyp_config_path = f"configs/sweeps/"
 
         # Initialize the environments
         print("Tuning:", self.hp_tuning)
@@ -245,11 +246,8 @@ class RLExperimentManager:
     #     """
     #     continue_sweep = True
     #     sweep_config = load_sweep_config(self.hyp_config_path, self.env_id, self.algorithm)
-    #     if continue_sweep:
-    #         wandb.agent("puk5fznz", project="dwarf-env", function=self.run_single_sweep, count=100)
-    #     else:
-    #         sweep_id = wandb.sweep(sweep=sweep_config, project=self.project)
-    #         wandb.agent(sweep_id, function=self.run_single_sweep, count=100)
+    #     sweep_id = wandb.sweep(sweep=sweep_config, project=self.project)
+    #     wandb.agent(sweep_id, function=self.run_single_sweep, count=100)
 
     def run_experiment(self):
         """Run the experiment with the initialized model and environments."""
