@@ -3,6 +3,8 @@ LettuceGreenhouse:
   Ns: 1   # Number of scenarios for MPC
   sigmad: 0.0 # Standard deviation of the disturbance
   nlp_opts:
+    verbose: 0
+    print_time: 0
     ipopt:
       warm_start_entire_iterate: 'yes'
       nlp_scaling_method: gradient-based
@@ -10,4 +12,4 @@ LettuceGreenhouse:
       constr_viol_tol: 0.01
       acceptable_constr_viol_tol: 0.1
       acceptable_tol: 1.e-2
-      print_level: 1
+      print_level: 0

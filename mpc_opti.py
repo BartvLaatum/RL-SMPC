@@ -1,14 +1,43 @@
 import argparse
 from typing import Any, Dict, List
+from tqdm import tqdm
 
-import yaml
 import numpy as np
 import pandas as pd
 import casadi as ca
 
-from common.utils import *
+from common.utils import load_disturbances, compute_economic_reward, get_parameters, \
+    load_env_params, load_mpc_params, define_model, co2dens2ppm, vaporDens2rh
+
 
 class MPC:
+    """
+    A class to represent a Model Predictive Controller (MPC) for nonlinear systems.
+
+    The MPC class utilizes CasADi's Opti stack to define and solve an optimization problem
+    that minimizes a cost function while satisfying system dynamics and constraints over a 
+    specified prediction horizon.
+
+    Attributes:
+        opti (casadi.Opti): The optimization problem instance.
+        nu (int): Number of control inputs.
+        nx (int): Number of state variables.
+        ny (int): Number of output variables.
+        Np (int): Prediction horizon length.
+        x_initial (np.ndarray): Initial state of the system.
+        u_initial (np.ndarray): Initial control input.
+        lb_pen_w (np.ndarray): Lower bounds for penalty weights.
+        ub_pen_w (np.ndarray): Upper bounds for penalty weights.
+        du_max (float): Maximum allowable change in control input.
+        nlp_opts (dict): Options for the IPOPT solver.
+
+    Methods:
+        define_nlp(p: Dict[str, Any]) -> None:
+            Defines the nonlinear programming (NLP) problem, including decision variables,
+            parameters, constraints, and the cost function.
+            Defines a callable function `MPC_func` that can be used to solve the optimization problem.
+
+    """
     def __init__(
             self,
             nx: int,
@@ -40,7 +69,7 @@ class MPC:
         self.L = n_days * 86400
         self.start_day = start_day
 
-        self.t = np.arange(0, self.L + self.h, self.h)
+        self.t = np.arange(0, self.L, self.h)
         self.N = len(self.t)
         self.lb_pen_w = np.expand_dims(lb_pen_w, axis=0)
         self.ub_pen_w = np.expand_dims(ub_pen_w, axis=0)
@@ -60,12 +89,23 @@ class MPC:
         """Initialize the nonlinear MPC problem.
         Initialise the constraints, bounds, and the optimization problem.
         """
-        # ah_max = rh2vaporDens(self.constraints["temp_max"], self.constraints["rh_max"])    # upper bound on vapor density                  [kg/m^{-3}]      
-        ah_min = rh2vaporDens(self.constraints["temp_min"], self.constraints["rh_min"])    # lower bound on vapor density                  [kg/m^{-3}]
-        co2_dens_min = co2ppm2dens(self.constraints["co2_min"], self.constraints["temp_min"]) # lower bound on co2 density                   [kg/m^{-3}]           
-        co2_dens_max = co2ppm2dens(self.constraints["co2_max"], self.constraints["temp_max"]) # upper bound on co2 density                   [kg/m^{-3}]
-        self.x_min = np.array([self.constraints["W_min"], 0, 5., ah_min])
-        self.x_max = np.array([self.constraints["W_max"], 0.004, 40., 0.051])
+        self.x_min = np.array(
+            [
+                self.constraints["W_min"],
+                self.constraints["state_co2_min"],
+                self.constraints["state_temp_min"],
+                self.constraints["state_vp_min"]
+            ],
+            dtype=np.float32
+        )
+        self.x_max = np.array(
+            [
+                self.constraints["W_max"],
+                self.constraints["state_co2_max"],
+                self.constraints["state_temp_max"],
+                self.constraints["state_vp_max"]
+            ],
+        )
 
         self.y_min = np.array([self.constraints["W_min"], self.constraints["co2_min"], self.constraints["temp_min"], self.constraints["rh_min"]])
         self.y_max = np.array([self.constraints["W_max"], self.constraints["co2_max"], self.constraints["temp_max"], self.constraints["rh_max"]])
@@ -79,24 +119,6 @@ class MPC:
         # initial values of the decision variables (control signals) in the optimization
         self.u0 = np.zeros((self.nu, self.Np)) # this can be moved to the shooting function method.
 
-    def set_slack_variables(self, ll: int, p: Dict[str, Any]) -> None:
-        # Penalty Constraints
-        # CO2 Lower Bound Penalty
-        self.opti.subject_to(self.P[:, ll] >= 0)
-        self.opti.subject_to(self.P[0, ll] >= self.lb_pen_w[0,0] * (self.y_min[1] - self.ys[1, ll]))
-        self.opti.subject_to(self.P[1, ll] >= self.ub_pen_w[0,0] * (self.ys[1, ll] - self.y_max[1]))
-        self.opti.subject_to(self.P[2, ll] >= self.lb_pen_w[0,1] * (self.y_min[2] - self.ys[2, ll]))
-        self.opti.subject_to(self.P[3, ll] >= self.ub_pen_w[0,1] * (self.ys[2, ll] - self.y_max[2]))
-        self.opti.subject_to(self.P[4, ll] >= self.lb_pen_w[0,2] * (self.y_min[3] - self.ys[3, ll]))
-        self.opti.subject_to(self.P[5, ll] >= self.ub_pen_w[0,2] * (self.ys[3, ll] - self.y_max[3]))
-        # CO2 Upper Bound Penalty
-        # Temperature Lower Bound Penalty
-        # Temperature Upper Bound Penalty
-
-        # Humidity Lower Bound Penalty
-        # Humidity Upper Bound Penalty
-
-
     def define_nlp(self, p: Dict[str, Any]) -> None:
         """
         Define the optimization problem for the nonlinear MPC using CasADi's Opti stack.
@@ -105,19 +127,13 @@ class MPC:
         # Create an Opti instance
         self.opti = ca.Opti()
 
-        # Control Variables
-        self.us = self.opti.variable(self.nu, self.Np)  # Control inputs (nu x Np)
-
         # Number of penalties (CO2 lb, CO2 ub, Temp lb, Temp ub, humidity lb, humidity ub)
         num_penalties = 6
 
-        # Penalty Variables
+        # Decision Variables (Control inputs, slack variables, states, outputs)
+        self.us = self.opti.variable(self.nu, self.Np)  # Control inputs (nu x Np)
         self.P = self.opti.variable(num_penalties, self.Np)
-
-        # State Variables
         self.xs = self.opti.variable(self.nx, self.Np+1)
-
-        # Output Variables
         self.ys = self.opti.variable(self.ny, self.Np)
 
         # Parameters
@@ -126,7 +142,7 @@ class MPC:
         self.init_u = self.opti.parameter(self.nu, 1)  # Initial control input
 
         self.opti.set_value(self.x0, self.x_initial)
-        self.opti.set_value(self.ds, casadi.DM.zeros(self.ds.shape))
+        self.opti.set_value(self.ds, ca.DM.zeros(self.ds.shape))
         self.opti.set_value(self.init_u, self.u_initial)
 
         self.Js = 0
@@ -158,75 +174,14 @@ class MPC:
         self.opti.subject_to(self.xs[:,0] == self.x0)     # Initial Condition Constraint
         self.opti.minimize(self.Js)
 
-        # Solver options
-        opts = {}
-        opts["print_time"] = True
-        opts["ipopt.print_level"] = False
-        opts["verbose"] = False
-        opts["ipopt.max_iter"] = 5000
-        opts["ipopt.nlp_scaling_method"] = 'gradient-based'
-        opts["ipopt.warm_start_entire_iterate"] = 'yes'
-        s_opts = {
-        "constr_viol_tol": 0.01,
-        "acceptable_constr_viol_tol": 0.1, 
-        "acceptable_tol": 1e-2, 
-    }
-        # self.opti.solver('ipopt', self.nlp_opts)
-        self.opti.solver('ipopt', opts, s_opts)
-        self.mpc_solver = self.opti.to_function(
-            'mpc_solver',
+        self.opti.solver('ipopt', self.nlp_opts)
+        self.MPC_func = self.opti.to_function(
+            'MPC_func',
             [self.x0, self.ds, self.init_u],
             [self.us, self.xs, self.ys, self.Js],
             ['x0','ds','u0'],
             ['u_opt', 'x_opt', 'y_opt', 'J_opt']
         )
-
-    def slack_penalty(self, Pk) -> ca.SX:
-        """
-        Slack variable penalty function.
-        """
-        return ca.sum1(Pk)
-
-    def cost_function_with_P(self, params) -> ca.SX:
-        """
-        Cost function including penalty variables `P` for constraint violations.
-        """
-        Js = self.economic_cost_function(params)\
-            + ca.sum1(ca.sum2(self.P))  # Sum of penalty variables
-        return Js
-
-
-    def solve_nlp_problem(self, x0_value, u0_value, d_value):
-        """Given initial values for state and disturbances, solve the optimization problem.
-
-        Args:
-            x0_value (np.ndarray): Initial state value.
-            d_value (np.ndarray): Disturbance values for the prediction horizon.
-
-        Returns:
-            np.ndarray: Optimal control inputs.
-            float: Optimal cost value.
-            dict: Solver output.
-        """
-        # Set parameter values
-        self.opti.set_value(self.x0, x0_value)
-        self.opti.set_value(self.ds, d_value)
-        self.opti.set_value(self.init_u, u0_value)
-
-        # Solve the problem
-        sol = self.opti.solve()
-        us_opt = sol.value(self.us)
-        Js_opt = sol.value(self.Js)
-        # Retrieve P if needed
-        P_opt = sol.value(self.P)
-        ys_opt = sol.value(self.ys)
-        xs_opt = sol.value(self.xs)
-        # Update initial guess for next iteration
-        self.u0 = us_opt
-        delta_dw = xs_opt[0, 1] - xs_opt[0, 0]
-        rew = compute_economic_reward(delta_dw, get_parameters(), self.h, us_opt[:, 0])
-
-        return us_opt, Js_opt, sol, rew
 
 class Experiment:
     """Experiment manager to test the closed loop performance of MPC.
@@ -303,24 +258,20 @@ class Experiment:
             np.ndarray: the gradient of the cost function
             np.ndarray: the hessian of the cost function
         """
-        for kk in range(self.mpc.N):
+        for ll in tqdm(range(self.mpc.N)):
 
-            print(f"Step: {kk}")
-            us_opt, xs_opt, ys_opt, J_opt = mpc.mpc_solver(self.x[:, kk], self.d[:, kk:kk+self.mpc.Np], self.u[:, kk])
-            self.u[:, kk+1] = us_opt[:, 0].toarray().ravel()
-            # self.update_results(us_opt, Js_opt, sol, eco_rew, kk)
+            us_opt, xs_opt, ys_opt, J_opt = self.mpc.MPC_func(self.x[:, ll], self.d[:, ll:ll+self.mpc.Np], self.u[:, ll])
+            self.u[:, ll+1] = us_opt[:, 0].toarray().ravel()
 
-            self.x[:, kk+1] = mpc.F(self.x[:, kk], self.u[:, kk+1], self.d[:, kk], p).toarray().ravel()
-            self.y[:, kk+1] = mpc.g(self.x[:, kk+1]).toarray().ravel()
+            self.x[:, ll+1] = self.mpc.F(self.x[:, ll], self.u[:, ll+1], self.d[:, ll], p).toarray().ravel()
+            self.y[:, ll+1] = self.mpc.g(self.x[:, ll+1]).toarray().ravel()
 
-            delta_dw = self.x[:, kk+1] - self.x[:, kk]
-            rew = compute_economic_reward(delta_dw, get_parameters(), self.h, us_opt[:, 0])
-
-            self.update_results(us_opt, J_opt, [], 0, kk)
+            delta_dw = self.x[0, ll+1] - self.x[0, ll]
+            econ_rew = compute_economic_reward(delta_dw, get_parameters(), mpc.h, self.u[:, ll+1])
+            self.update_results(us_opt, J_opt, [], econ_rew, ll)
 
     def update_results(self, us_opt, Js_opt, sol, eco_rew, step):
         """
-
         Args:
             uopt (_type_): _description_
             J (_type_): _description_
@@ -360,22 +311,19 @@ class Experiment:
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument("--project_name", type=str)
+    parser.add_argument("--project", type=str)
     parser.add_argument("--env_id", type=str, default="LettuceGreenhouse")
     parser.add_argument("--save_name", type=str)
     parser.add_argument("--weather_filename", default="outdoorWeatherWurGlas2014.csv", type=str)
     args = parser.parse_args()
-    # load the config file
-    with open(f"configs/envs/{args.env_id}.yml", "r") as file:
-        env_params = yaml.safe_load(file)
 
-    with open("configs/models/mpc.yml", "r") as file:
-        mpc_params = yaml.safe_load(file)
+    env_params = load_env_params(args.env_id)
+    mpc_params = load_mpc_params(args.env_id)
 
     # p = DefineParameters()
     p = get_parameters()
-    mpc = MPC(**env_params, **mpc_params[args.env_id])
+    mpc = MPC(**env_params, **mpc_params)
     mpc.define_nlp(p)
-    exp = Experiment(mpc, args.save_name, args.project_name, args.weather_filename)
+    exp = Experiment(mpc, args.save_name, args.project, args.weather_filename)
     exp.solve_nmpc(p)
     exp.save_results()

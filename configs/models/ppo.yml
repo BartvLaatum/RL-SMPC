@@ -1,5 +1,5 @@
 LettuceGreenhouse:
-  Np: 1
+  Np: 25
   obs_module: StandardObservations
   obs_names: [deltaDW, yCo2, yTemp, yRh, uCo2, uVent, uHeat, timestep, dIGlob, dCo2, dTemp, dRh]
   weather_filename: outdoorWeatherWurGlas2014.csv

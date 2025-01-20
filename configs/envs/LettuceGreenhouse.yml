@@ -6,7 +6,7 @@ h: 900.
 n_days: 40
 start_day: 29
 x0: [0.0035, 1.e-3, 15, 0.008]
-u0: [0., 0., 0.]
+u0: [0., 0., 50.]
 lb_pen_w: [5.e-5, 0.003333333333335, .02]
 ub_pen_w: [5.e-5, 0.005, .02]
 constraints:
@@ -17,11 +17,18 @@ constraints:
   heat_min: 0           # lower bound on energy input through heating   [W m^{-2}]                 0
   heat_max: 150.        # upper bound on energy input through heating   [W m^{-2}]                 150
 
-  W_min: 0.002          # lower bound on dry weight                     [kg{crop} m^{-2}]        
-  W_max: 0.6            # upper bound on dry weight                     [kg{crop} m^{-2}]        
-  co2_min: 500.         # lower bound on CO2 concentration              [kg{co2} m^{-3}]        0
-  co2_max: 1600.        # upper bound on CO2 concentration              [kg{co2} m^{-3}]        2.75e-3
+  co2_min: 500.         # lower bound on CO2 concentration              [ppm]        0
+  co2_max: 1600.        # upper bound on CO2 concentration              [ppm]        2.75e-3
   temp_min: 10.         # lower bound on temperature                    [°C]                    6.5
   temp_max: 20.         # upper bound on temperature                    [°C]                    20
   rh_min: 0.            # lower bound on relative humidity              [#]                     0
   rh_max: 75.          # upper bound on relative humidity               [#]                     70
+
+  W_min: 0.002          # lower bound on dry weight                     [kg{crop} m^{-2}]        
+  W_max: 0.6            # upper bound on dry weight                     [kg{crop} m^{-2}]        
+  state_co2_min: 0.           # lower bound on CO2 concentration              [kg m^{-3} m^{-2}]        0
+  state_co2_max: 0.004        # upper bound on CO2 concentration              [kg m^{-3} m^{-2}]        2.75e-3
+  state_temp_min: 5.          # lower bound on temperature                    [°C]                    6.5
+  state_temp_max: 40.         # upper bound on temperature                    [°C]                    20
+  state_vp_min: 0.            # lower bound on vapor pressure                 [Pa]                     0
+  state_vp_max: 0.051         # upper bound on vapor pressure                 [Pa]                     70

@@ -1,16 +1,16 @@
 LettuceGreenhouse:
-  Np: 1
+  Np: 25
   obs_module: StandardObservations
   obs_names: [deltaDW, yCo2, yTemp, yRh, uCo2, uVent, uHeat, timestep, dIGlob, dCo2, dTemp, dRh]
   weather_filename: outdoorWeatherWurGlas2014.csv
 
 hyperparameters:
-  total_timesteps: 600_000
+  total_timesteps: 1_000_000
   n_envs: 1
   policy: MlpPolicy
   learning_rate: 5.e-3
   buffer_size: 100_000  
-  learning_starts: 36864 # let the agents randomly explore for episodes.
+  learning_starts: 50_000 # let the agents randomly explore for episodes.
   batch_size: 1024
   tau: 0.005
   gamma: 0.95
