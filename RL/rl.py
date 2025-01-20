@@ -1,10 +1,6 @@
-import copy
 import os
-import argparse
 import gc
-from copy import copy
-from pprint import pprint
-# os.environ["TF_CPP_MIN_LOG_LEVEL"] = "3"
+import argparse
 
 import numpy as np
 
@@ -21,7 +17,67 @@ OPTIMIZER = {"adam": Adam, "rmsprop": RMSprop}
 ACTION_NOISE = {"normalactionnoise": NormalActionNoise, "ornstein_uhlenbeck": OrnsteinUhlenbeckActionNoise}
 
 class RLExperimentManager:
-    """Class to manage reinforcement learning experiments."""
+    """
+    Class to manage reinforcement learning experiments.
+
+    The RLExperimentManager is responsible for setting up, running, and managing 
+    reinforcement learning experiments using specified algorithms and environments. 
+    It handles the initialization of environments, model parameters, and the training 
+    process, including evaluation and logging of results.
+
+    Attributes:
+        env_id (str): ID of the environment to train on.
+        project (str): Wandb project name for logging.
+        env_params (dict): Parameters for the environment.
+        hyperparameters (dict): Hyperparameters for the RL algorithm.
+        n_envs (int): Number of parallel environments to use.
+        total_timesteps (int): Total number of timesteps for training.
+        stochastic (bool): Whether to run the experiment in stochastic mode.
+        group (str): Wandb group name for logging.
+        n_eval_episodes (int): Number of episodes to evaluate the agent.
+        n_evals (int): Number of evaluations during training.
+        algorithm (str): RL algorithm to use (e.g., PPO, SAC).
+        env_seed (int): Seed for the environment for reproducibility.
+        model_seed (int): Seed for the model for reproducibility.
+        save_model (bool): Whether to save the trained model.
+        save_env (bool): Whether to save the environment normalization.
+        hp_tuning (bool): Whether hyperparameter tuning is being performed.
+        device (str): Device to run the experiment on (e.g., "cpu", "cuda").
+        models (dict): Mapping of algorithm names to their respective model classes.
+        model_class: The specific model class to be used based on the algorithm.
+        env: The training environment.
+        eval_env: The evaluation environment.
+        model: The RL model instance.
+
+    Methods:
+        init_envs() -> None:
+            Initializes the training and evaluation environments.
+
+        initialise_model() -> None:
+            Initializes the model for training or continued training.
+
+        build_model_parameters() -> dict:
+            Constructs the model parameters from the hyperparameters.
+
+        run_experiment() -> None:
+            Executes the experiment with the initialized model and environments.
+
+    Example:
+        experiment_manager = RLExperimentManager(
+            env_id="LettuceGreenhouse",
+            project="rlmpc",
+            env_params=env_params,
+            hyperparameters=hyperparameters,
+            group="group",
+            n_eval_episodes=5,
+            n_evals=10,
+            algorithm="sac",
+            env_seed=42,
+            model_seed=42,
+            stochastic=False
+        )
+        experiment_manager.run_experiment()
+    """
     def __init__(
         self,
         env_id,
@@ -54,8 +110,11 @@ class RLExperimentManager:
             algorithm (str): RL algorithm to use.
             env_seed (int): Seed for the environment.
             model_seed (int): Seed for the model.
+            stochastic (bool): Whether to run the experiment in stochastic mode.
             save_model (bool): Whether to save the model.
             save_env (bool): Whether to save the environment.
+            hp_tuning (bool): Whether hyperparameter tuning is being performed.
+            device (str): Device to run the experiment on (e.g., "cpu", "cuda").
         """
         self.env_id = env_id
         self.project = project
@@ -82,7 +141,6 @@ class RLExperimentManager:
 
 
         # Load environment and model parameters
-        # self.env_config_path = f"gl_gym/configs/envs/"
         self.model_config_path = f"configs/agents/"
         self.hyp_config_path = f"configs/sweeps/"
 
@@ -155,6 +213,18 @@ class RLExperimentManager:
         )
 
     def build_model_parameters(self):
+        """
+        Constructs and returns the model parameters for the reinforcement learning model.
+
+        This method processes the hyperparameters provided during initialization to 
+        configure the model parameters. It handles the conversion of string identifiers 
+        for activation functions and optimizers into their respective classes. Additionally, 
+        it sets up action noise parameters if the SAC algorithm is used.
+
+        Returns:
+            dict: A dictionary containing the model parameters, including any necessary 
+                  conversions for activation functions, optimizers, and action noise.
+        """
         model_params = self.hyperparameters.copy()
 
         if "policy_kwargs" in self.hyperparameters:
@@ -187,6 +257,57 @@ class RLExperimentManager:
                 model_params["action_noise"] = action_noise
         return model_params
 
+    def run_experiment(self):
+        """
+        Executes the reinforcement learning experiment.
+
+        This method manages the training process of the RL model using the initialized
+        environments and model parameters. It sets up logging directories based on the 
+        experiment's stochastic or deterministic nature, calculates evaluation frequency, 
+        and creates necessary callbacks for model evaluation and environment saving. 
+        The method then trains the model for the specified number of timesteps, saves 
+        the final model and environment normalization if required, and performs cleanup 
+        operations post-training.
+        """
+        if self.stochastic:
+            model_log_dir = f"train_data/{self.project}/{self.algorithm}/stochastic/models/{self.run.name}/" if self.save_model else None
+            env_log_dir = f"train_data/{self.project}/{self.algorithm}/stochastic/envs/{self.run.name}/" if self.save_env else None
+        else:
+            model_log_dir = f"train_data/{self.project}/{self.algorithm}/deterministic/models/{self.run.name}/" if self.save_model else None
+            env_log_dir = f"train_data/{self.project}/{self.algorithm}/deterministic/envs/{self.run.name}/" if self.save_env else None
+
+        eval_freq = self.total_timesteps // self.n_evals // self.n_envs
+        save_name = "vec_norm"
+
+        callbacks = create_callbacks(
+            self.n_eval_episodes,
+            eval_freq,
+            env_log_dir,
+            save_name,
+            model_log_dir,
+            self.eval_env,
+            run=self.run,
+            results=None,
+            save_env=self.save_env,
+            verbose=1 # verbose-2; debug messages.
+        )
+
+        # Train the model
+        self.model.learn(total_timesteps=self.total_timesteps, callback=callbacks, reset_num_timesteps=False)
+        if model_log_dir:
+            self.model.save(os.path.join(model_log_dir, "last_model"))
+
+        # Save the environment normalization
+        if env_log_dir:
+            env_save_path = os.path.join(env_log_dir, "last_vecnormalize.pkl")
+        self.model.get_vec_normalize_env().save(env_save_path)
+
+        # Clean up and finalize the run
+        self.run.finish()
+        self.env.close()
+        self.eval_env.close()
+        del self.model, self.env, self.eval_env
+        gc.collect()
 
     # # def build_model_hyperparameters(self, config):
     # #     """Build the model hyperparameters from the given config."""
@@ -250,48 +371,6 @@ class RLExperimentManager:
     #     sweep_config = load_sweep_config(self.hyp_config_path, self.env_id, self.algorithm)
     #     sweep_id = wandb.sweep(sweep=sweep_config, project=self.project)
     #     wandb.agent(sweep_id, function=self.run_single_sweep, count=100)
-
-    def run_experiment(self):
-        """Run the experiment with the initialized model and environments."""
-        if self.stochastic:
-            model_log_dir = f"train_data/{self.project}/{self.algorithm}/stochastic/models/{self.run.name}/" if self.save_model else None
-            env_log_dir = f"train_data/{self.project}/{self.algorithm}/stochastic/envs/{self.run.name}/" if self.save_env else None
-        else:
-            model_log_dir = f"train_data/{self.project}/{self.algorithm}/deterministic/models/{self.run.name}/" if self.save_model else None
-            env_log_dir = f"train_data/{self.project}/{self.algorithm}/deterministic/envs/{self.run.name}/" if self.save_env else None
-
-        eval_freq = self.total_timesteps // self.n_evals // self.n_envs
-        save_name = "vec_norm"
-
-        callbacks = create_callbacks(
-            self.n_eval_episodes,
-            eval_freq,
-            env_log_dir,
-            save_name,
-            model_log_dir,
-            self.eval_env,
-            run=self.run,
-            results=None,
-            save_env=self.save_env,
-            verbose=1 # verbose-2; debug messages.
-        )
-
-        # Train the model
-        self.model.learn(total_timesteps=self.total_timesteps, callback=callbacks, reset_num_timesteps=False)
-        if model_log_dir:
-            self.model.save(os.path.join(model_log_dir, "last_model"))
-
-        # Save the environment normalization
-        if env_log_dir:
-            env_save_path = os.path.join(env_log_dir, "last_vecnormalize.pkl")
-        self.model.get_vec_normalize_env().save(env_save_path)
-
-        # Clean up and finalize the run
-        self.run.finish()
-        self.env.close()
-        self.eval_env.close()
-        del self.model, self.env, self.eval_env
-        gc.collect()
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
