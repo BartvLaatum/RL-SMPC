@@ -2,6 +2,8 @@ wandb/
 figures/
 train_data/
 .vscode/
+_l4c_generated/
+data/
 *.ipynb
 *.pyc
 *.ipynb_checkpoints
