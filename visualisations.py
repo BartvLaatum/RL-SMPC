@@ -49,12 +49,12 @@ def plot_states(dfs, nplots, var, labels, ylabels, linestyles, bounds=None):
             ax[i].set_ylabel(ylabels[i])
             if bounds[i] is not None:
                 ax[i].hlines(bounds[i], df['time'].iloc[0], df['time'].iloc[-1], linestyle='--', color='grey')
-    ax[0].legend(bbox_to_anchor=(1.05, 1.1),)
+    ax[0].legend(loc='upper left', bbox_to_anchor=(0, 1))
     fig.tight_layout()
     return fig, ax
 
 
-def plot_cumulative_rewards(dfs, labels, ylabel, linestyles):
+def plot_cumulative_rewards(dfs, labels, colors, ylabel, linestyles):
     """
     Plots the cumulative rewards of multiple dataframes.
 
@@ -74,10 +74,10 @@ def plot_cumulative_rewards(dfs, labels, ylabel, linestyles):
     
     for j, df in enumerate(dfs):
         cumulative = df["econ_rewards"].cumsum()
-        ax.plot(df['time'], cumulative, label=labels[j], linestyle=linestyles[j])
+        ax.plot(df['time'], cumulative, label=labels[j], c=colors[j], linestyle=linestyles[j])
         ax.set_ylabel(ylabel)
     
-    ax.legend(bbox_to_anchor=(1.05, 1.1))
+    ax.legend(loc='upper left', bbox_to_anchor=(0, 1))
     fig.tight_layout()
     return fig, ax
 
