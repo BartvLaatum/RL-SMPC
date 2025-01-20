@@ -7,7 +7,7 @@ import casadi as ca
 import pandas as pd
 
 from common.utils import *
-from mpc import MPC, Experiment
+from mpc_unused import MPC, Experiment
 
 
 if __name__ == "__main__":
