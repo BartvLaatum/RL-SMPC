@@ -34,6 +34,7 @@ class RLMPC(MPC):
             env_params: Dict[str, Any],
             mpc_params: Dict[str, Any],
             rl_env_params: Dict[str, Any],
+            algorithm: str,
             env_path: str,
             rl_model_path: str,
             vf_path,
@@ -57,7 +58,7 @@ class RLMPC(MPC):
 
         # Unnormalized Environment, used for evaluation
         self.eval_env = LettuceGreenhouse(**rl_env_params)
-        self.model = ALGS[args.algorithm].load(rl_model_path, env=self.eval_env)
+        self.model = ALGS[algorithm].load(rl_model_path, env=self.eval_env)
 
         self.trained_vf = th.load(vf_path)
         self.trained_vf.eval()
@@ -352,7 +353,7 @@ class Experiment:
             weather_filename,
             self.mpc.L,
             self.mpc.start_day,
-            self.mpc.h,
+            self.mpc.dt,
             self.mpc.Np+1,
             self.mpc.nd
         )
@@ -362,6 +363,8 @@ class Experiment:
         self.dJdu = np.zeros((mpc.nu*mpc.Np, mpc.N))
         self.output = []
         self.rewards = np.zeros((1, mpc.N))
+        self.penalties = np.zeros((1, mpc.N))
+        self.econ_rewards = np.zeros((1, mpc.N))
 
     def solve_nmpc(self, p) -> None:
         """Solve the nonlinear MPC problem.
@@ -498,11 +501,12 @@ class Experiment:
             self.y[:, ll+1] = self.mpc.g(self.x[:, ll+1]).toarray().ravel()
 
             delta_dw = self.x[0, ll+1] - self.x[0, ll]
-            econ_rew = compute_economic_reward(delta_dw, get_parameters(), self.mpc.h, self.u[:, ll+1])
-            self.update_results(us_opt, J_mpc_1, [], econ_rew, ll)
+            econ_rew = compute_economic_reward(delta_dw, get_parameters(), self.mpc.dt, self.u[:, ll+1])
+            penalties = self.mpc.compute_penalties(self.y[:, ll+1])
+            self.update_results(us_opt, J_mpc_1, [], econ_rew, penalties, ll)
 
 
-    def update_results(self, us_opt, Js_opt, sol, eco_rew, ll):
+    def update_results(self, us_opt, Js_opt, sol, eco_rew, penalties, ll):
         """
         Args:
             uopt (_type_): _description_
@@ -513,8 +517,9 @@ class Experiment:
         self.uopt[:,:, ll] = us_opt
         self.J[:, ll] = Js_opt
         self.output.append(sol)
-        self.rewards[:, ll] = eco_rew
-        
+        self.econ_rewards[:, ll] = eco_rew
+        self.penalties[:, ll] = penalties
+        self.rewards[:, ll] = eco_rew - penalties
 
     def save_results(self, save_path):
         """
@@ -532,11 +537,10 @@ class Experiment:
             data[f"u_{i}"] = self.u[i, 1:]
         for i in range(self.d.shape[0]):
             data[f"d_{i}"] = self.d[i, :self.mpc.N]
-        # for i in range(self.uopt.shape[0]):
-        #     for j in range(self.uopt.shape[1]):
-        #         data[f"uopt_{i}_{j}"] = self.uopt[i, j, :-1]
         data["J"] = self.J.flatten()
-        data["econ_rewards"] = self.rewards.flatten()
+        data["econ_rewards"] = self.econ_rewards.flatten()
+        data["penalties"] = self.penalties.flatten()
+        data["rewards"] = self.rewards.flatten()    
 
         df = pd.DataFrame(data, columns=data.keys())
         df.to_csv(f"{save_path}/{self.save_name}.csv", index=False)

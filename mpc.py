@@ -45,7 +45,7 @@ class MPC:
             nu: int,
             ny: int,
             nd: int,
-            h: float,
+            dt: float,
             n_days: int,
             x0: List[float],
             u0: List[float],
@@ -64,13 +64,13 @@ class MPC:
         self.nu = nu
         self.ny = ny
         self.nd = nd
-        self.h = h
+        self.dt = dt
         self.nDays = n_days
         self.Np = Np
         self.L = n_days * 86400
         self.start_day = start_day
 
-        self.t = np.arange(0, self.L, self.h)
+        self.t = np.arange(0, self.L, self.dt)
         self.N = len(self.t)
         self.lb_pen_w = np.expand_dims(lb_pen_w, axis=0)
         self.ub_pen_w = np.expand_dims(ub_pen_w, axis=0)
@@ -84,7 +84,7 @@ class MPC:
         # initialize the boundaries for the optimization problem
         self.init_nmpc()
 
-        self.F, self.g = define_model(self.h)
+        self.F, self.g = define_model(self.dt)
 
     def init_nmpc(self):
         """Initialize the nonlinear MPC problem.
@@ -164,7 +164,7 @@ class MPC:
 
             # COST FUNCTION WITH PENALTIES
             delta_dw = self.xs[0, ll+1] - self.xs[0, ll]
-            self.Js -= compute_economic_reward(delta_dw, p, self.h, self.us[:,ll])
+            self.Js -= compute_economic_reward(delta_dw, p, self.dt, self.us[:,ll])
             self.Js += (self.P[0, ll]+ self.P[1, ll]+self.P[2, ll]+self.P[3, ll]+self.P[4, ll]+self.P[5, ll])
 
             if ll < self.Np-1:
@@ -183,6 +183,26 @@ class MPC:
             ['x0','ds','u0'],
             ['u_opt', 'x_opt', 'y_opt', 'J_opt']
         )
+
+
+    def constraint_violation(self, y: np.ndarray):
+        """
+        Function that computes the absolute penalties for violating system constraints.
+        System constraints are currently non-dynamical, and based on observation bounds of gym environment.
+        We do not look at dry mass bounds, since those are non-existent in real greenhouse.
+        """
+        lowerbound = self.y_min[1:] - y[1:]
+        lowerbound[lowerbound < 0] = 0
+        upperbound = y[1:] - self.y_max[1:]
+        upperbound[upperbound < 0] = 0
+
+        return lowerbound, upperbound
+
+    def compute_penalties(self, y):
+        lowerbound, upperbound = self.constraint_violation(y)
+        penalties = np.dot(self.lb_pen_w, lowerbound) + np.dot(self.ub_pen_w, upperbound)
+        return np.sum(penalties)
+
 
 class Experiment:
     """Experiment manager to test the closed loop performance of MPC.
@@ -233,7 +253,7 @@ class Experiment:
             weather_filename,
             self.mpc.L,
             self.mpc.start_day,
-            self.mpc.h,
+            self.mpc.dt,
             self.mpc.Np,
             self.mpc.nd
         )
@@ -242,6 +262,8 @@ class Experiment:
         self.J = np.zeros((1, mpc.N))
         self.dJdu = np.zeros((mpc.nu*mpc.Np, mpc.N))
         self.output = []
+        self.penalties = np.zeros((1, mpc.N))
+        self.econ_rewards = np.zeros((1, mpc.N))
         self.rewards = np.zeros((1, mpc.N))
 
     def solve_nmpc(self, p) -> None:
@@ -268,10 +290,12 @@ class Experiment:
             self.y[:, ll+1] = self.mpc.g(self.x[:, ll+1]).toarray().ravel()
 
             delta_dw = self.x[0, ll+1] - self.x[0, ll]
-            econ_rew = compute_economic_reward(delta_dw, get_parameters(), mpc.h, self.u[:, ll+1])
-            self.update_results(us_opt, J_opt, [], econ_rew, ll)
+            econ_rew = compute_economic_reward(delta_dw, get_parameters(), self.mpc.dt, self.u[:, ll+1])
+            penalties = self.mpc.compute_penalties(self.y[:, ll+1])
 
-    def update_results(self, us_opt, Js_opt, sol, eco_rew, step):
+            self.update_results(us_opt, J_opt, [], econ_rew, penalties, ll)
+
+    def update_results(self, us_opt, Js_opt, sol, eco_rew, penalties, step):
         """
         Args:
             uopt (_type_): _description_
@@ -282,8 +306,9 @@ class Experiment:
         self.uopt[:,:, step] = us_opt
         self.J[:, step] = Js_opt
         self.output.append(sol)
-        self.rewards[:, step] = eco_rew
-        
+        self.econ_rewards[:, step] = eco_rew
+        self.penalties[:, step] = penalties
+        self.rewards[:, step] = eco_rew - penalties
 
     def save_results(self, save_path):
         """
@@ -294,18 +319,20 @@ class Experiment:
         self.d[3, :] = vaporDens2rh(self.d[2, :], self.d[3, :])
         data["time"] = self.mpc.t / 86400
         for i in range(self.x.shape[0]):
-            data[f"x_{i}"] = self.x[i, :mpc.N]
+            data[f"x_{i}"] = self.x[i, :self.mpc.N]
         for i in range(self.y.shape[0]):
-            data[f"y_{i}"] = self.y[i, :mpc.N]
+            data[f"y_{i}"] = self.y[i, :self.mpc.N]
         for i in range(self.u.shape[0]):
             data[f"u_{i}"] = self.u[i, 1:]
         for i in range(self.d.shape[0]):
-            data[f"d_{i}"] = self.d[i, :mpc.N]
+            data[f"d_{i}"] = self.d[i, :self.mpc.N]
         # for i in range(self.uopt.shape[0]):
         #     for j in range(self.uopt.shape[1]):
         #         data[f"uopt_{i}_{j}"] = self.uopt[i, j, :-1]
         data["J"] = self.J.flatten()
         data["econ_rewards"] = self.rewards.flatten()
+        data["penalties"] = self.penalties.flatten()
+        data["rewards"] = self.rewards.flatten()
 
         df = pd.DataFrame(data, columns=data.keys())
         df.to_csv(f"{save_path}/{self.save_name}.csv", index=False)
