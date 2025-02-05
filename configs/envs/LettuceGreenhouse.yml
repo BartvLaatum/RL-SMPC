@@ -2,13 +2,13 @@ nx: 4
 ny: 4
 nu: 3
 nd: 4
-h: 900.
+dt: 1800.
 n_days: 40
 start_day: 29
 x0: [0.0035, 1.e-3, 15, 0.008]
 u0: [0., 0., 50.]
-lb_pen_w: [5.e-5, 0.003333333333335, .02]
-ub_pen_w: [5.e-5, 0.005, .02]
+lb_pen_w: [5.e-5, 0.003, 7.e-4]
+ub_pen_w: [5.e-5, 0.005, 7.e-4]
 constraints:
   co2_supply_min: 0.     # lower bound on CO2 supply rate                [kg{co2} m^{-2} s^{-1}]    0
   co2_supply_max: 1.2   # upper bound on CO2 supply rate                [mg{co2} m^{-2} s^{-1}]    1.2
@@ -22,7 +22,7 @@ constraints:
   temp_min: 10.         # lower bound on temperature                    [°C]                    6.5
   temp_max: 20.         # upper bound on temperature                    [°C]                    20
   rh_min: 0.            # lower bound on relative humidity              [#]                     0
-  rh_max: 75.          # upper bound on relative humidity               [#]                     70
+  rh_max: 80.          # upper bound on relative humidity               [#]                     70
 
   W_min: 0.002          # lower bound on dry weight                     [kg{crop} m^{-2}]        
   W_max: 0.6            # upper bound on dry weight                     [kg{crop} m^{-2}]        

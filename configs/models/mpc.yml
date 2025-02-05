@@ -8,7 +8,7 @@ LettuceGreenhouse:
     ipopt:
       warm_start_entire_iterate: 'yes'
       nlp_scaling_method: gradient-based
-      max_iter: 10000
+      max_iter: 5000
       constr_viol_tol: 0.01
       acceptable_constr_viol_tol: 0.1
       acceptable_tol: 1.e-2
