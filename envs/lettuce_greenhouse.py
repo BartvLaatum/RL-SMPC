@@ -47,7 +47,7 @@ class LettuceGreenhouse(gym.Env):
         ny: int,                # number of greenhouse measurements
         nd: int,                # number of disturbance (weather variables)
         nu: int,                # number of control inputs
-        h: float,               # control rate of the system in minutes
+        dt: float,               # control rate of the system in minutes
         n_days: int,            # simulation days
         Np: int,                # number of future weather predictions to use
         start_day: int,         # start day of simulation
@@ -71,11 +71,11 @@ class LettuceGreenhouse(gym.Env):
         self.nu = nu
         self.ny = ny
         self.nd = nd
-        self.h = h
+        self.dt = dt
         self.n_days = n_days
         self.L = n_days * self.c
         self.start_day = start_day
-        self.N = int(self.L//self.h)     # number of steps to take during episode
+        self.N = int(self.L//self.dt)     # number of steps to take during episode
         # prediction horizon for weather forecast for observation space
         self.Np = Np
 
@@ -83,7 +83,7 @@ class LettuceGreenhouse(gym.Env):
         self.p = get_parameters()
 
         # define the dynamical greenhouse model:
-        self.F, self.g = define_model(self.h)
+        self.F, self.g = define_model(self.dt)
 
         # observation space based on user input
         self.observation_module = observations[obs_module](obs_names=obs_names)
@@ -245,7 +245,7 @@ class LettuceGreenhouse(gym.Env):
         Reward function that calculates the reward of the environment.
         """
         delta_dw  = self.x[0] - self.prev_dw 
-        self.econ_rewards = float(compute_economic_reward(delta_dw, self.p, self.h, u))
+        self.econ_rewards = float(compute_economic_reward(delta_dw, self.p, self.dt, u))
         penalties = self._compute_penalty(self.y)
         return self.econ_rewards - penalties
 
@@ -312,7 +312,7 @@ class LettuceGreenhouse(gym.Env):
         self.x_prev = np.copy(self.x0)
         self.prev_dw = np.copy(self.x[0])
 
-        self.d = load_disturbances(self.weather_filename, self.L, self.start_day, self.h , self.Np*2, self.nd)
+        self.d = load_disturbances(self.weather_filename, self.L, self.start_day, self.dt , self.Np*2, self.nd)
         self.y = self.get_y()
         self.y_prev = np.copy(self.y)
 
