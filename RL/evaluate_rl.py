@@ -74,9 +74,9 @@ def save_results(env, save_path, x, u, y, rewards, epi):
 
     N = env.get_attr("N")[0]
     L = env.get_attr("L")[0]
-    h = env.get_attr("h")[0]
+    dt = env.get_attr("dt")[0]
 
-    t = np.arange(0, L + h, h)[:-1]
+    t = np.arange(0, L + dt, dt)[:-1]
     data["time"] = t / 86400
 
     for i in range(x.shape[0]):
@@ -88,6 +88,7 @@ def save_results(env, save_path, x, u, y, rewards, epi):
 
 
     data["econ_rewards"] = epi.flatten()
+    data["rewards"] = rewards.flatten()
     df = pd.DataFrame(data, columns=data.keys())
     df.to_csv(f"{save_path}/{args.model_name}.csv", index=False)
 

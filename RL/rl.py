@@ -141,7 +141,6 @@ class RLExperimentManager:
 
 
         # Load environment and model parameters
-        self.model_config_path = f"configs/agents/"
         self.hyp_config_path = f"configs/sweeps/"
 
         # Initialize the environments
@@ -156,21 +155,23 @@ class RLExperimentManager:
                 save_code=False
             )
 
-            self.init_envs()
+            self.init_envs(self.hyperparameters["gamma"])
             self.model_params = self.build_model_parameters()
             print(self.env.observation_space.shape)
             # Initialize the model
             self.initialise_model()
 
-    def init_envs(self):
+    def init_envs(self, gamma):
         """
         Initialize training and evaluation environments
         """
         self.monitor_filename = None
-        vec_norm_kwargs = {"norm_obs": True,
-                           "norm_reward": False,
-                           "clip_obs": 10,
-                           "gamma": self.hyperparameters["gamma"]}
+        vec_norm_kwargs = {
+            "norm_obs": True,
+            "norm_reward": False,
+            "clip_obs": 10,
+            "gamma": gamma
+        }
 
         # Setup new environment for training
         self.env = make_vec_env(
@@ -200,8 +201,10 @@ class RLExperimentManager:
             runname (str): Name of the run.
             job_type (str): Type of job (default is 'train').
         """
-
-        tensorboard_log = f"train_data/{self.project}/logs/{self.run.name}"
+        if self.stochastic:
+            tensorboard_log = f"train_data/{self.project}/{self.algorithm}/stochastic/logs/{self.run.name}"
+        else:
+            tensorboard_log = f"train_data/{self.project}/{self.algorithm}/deterministic/logs/{self.run.name}"
         # Initialize a new model for training
         self.model = self.model_class(
             env=self.env,
@@ -387,9 +390,6 @@ if __name__ == "__main__":
     parser.add_argument("--save_model", default=True, action=argparse.BooleanOptionalAction, help="Whether to save the model")
     parser.add_argument("--save_env", default=True, action=argparse.BooleanOptionalAction, help="Whether to save the environment")
     parser.add_argument("--hyperparameter_tuning", default=False, action=argparse.BooleanOptionalAction, help="Perform hyperparameter tuning")
-    # parser.add_argument("--continue_training", default=False, action=argparse.BooleanOptionalAction, help="Continue training from a saved model")
-    # parser.add_argument("--continued_project", type=str, default=None, help="Project name of the saved model to continue training from")
-    # parser.add_argument("--continued_runname", type=str, default=None, help="Runname of the saved model to continue training from")
     args = parser.parse_args()
 
     # assert args.num_cpus <= cpu_count(), f"Number of CPUs requested ({args.num_cpus}) is greater than available ({cpu_count()})"
