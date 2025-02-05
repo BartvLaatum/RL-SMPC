@@ -180,7 +180,7 @@ def DefineParameters():
     p["R"] = 8314           # 4     # ideal gas constant                            [J K^{-1} kmol^{-1}] 	8314            4
     p["T"] = 273.15         # 5     # conversion from C to K                        [K]                     273.15          5
 
-    p["leak"] = 0.75e-4     # 6     # ventilation leakage through the cover         [m s^{-1}]              0.75e-4         6
+    p["leak"] = 0.75e-5     # 6     # ventilation leakage through the cover         [m s^{-1}]              0.75e-4         6
     p["CO2cap"] = 4.1       # 7     # CO2 capacity of the greenhouse                [m^3{air} m^{-2}{gh}]   4.1             7
     p["H2Ocap"] = 4.1       # 8		# Vapor capacity of the greenhouse              [m^3{air} m^{-2}{gh}]   4.1             8
     p["aCap"] = 3e4         # 9     # effective heat capacity of the greenhouse air [J m^{-2}{gh} °C^{-1}]  3e4             9
@@ -254,7 +254,7 @@ def g_measure(x):
     )   
     return y
 
-def define_model(h):    
+def define_model(dt):
     # Convert xmin and xmax to CasADi constants (DM) with appropriate shape
     # xmin_cas = casadi.DM(xmin).reshape((-1, 1))  # Ensure it"s a column vector
     # xmax_cas = casadi.DM(xmax).reshape((-1, 1))  # Ensure it"s a column vector
@@ -279,7 +279,7 @@ def define_model(h):
     opts = {"simplify": True, "number_of_finite_elements": 4}
     input_args = casadi.vertcat(d, params)
 
-    integrator_func = casadi.integrator("integrator", "rk", {"x": x, "u":u, "p": input_args, "ode": dxdt}, 0., h, opts)
+    integrator_func = casadi.integrator("integrator", "rk", {"x": x, "u":u, "p": input_args, "ode": dxdt}, 0., dt, opts)
     res = integrator_func(x0=x, u=u, p=input_args)
     # Limit the state variables between xmin and xmax
     # xnext_unbounded = res["xf"]
@@ -287,7 +287,7 @@ def define_model(h):
     F = casadi.Function("F", [x, u, d, params], [res["xf"]], ["x", "u", "d", "p"], ["xnext"])    #Discretized Function
     return F, g
 
-def compute_economic_reward(delta_dw, params, h, u):
+def compute_economic_reward(delta_dw, params, dt, u):
     """
     Economic cost function. Can be used either by MPC or RL.
 
@@ -301,8 +301,8 @@ def compute_economic_reward(delta_dw, params, h, u):
         float: Economic reward.
     """
     return params[26] * (delta_dw) \
-        - 1e-6 * h * params[24] * u[0] \
-        - h / 3600 * params[23] * 1e-3 * u[2]
+        - 1e-6 * dt * params[24] * u[0] \
+        - dt / 3600 * params[23] * 1e-3 * u[2]
 
 def load_env_params(env_id: str) -> Dict[str, Any]:
     """
