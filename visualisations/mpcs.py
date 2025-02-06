@@ -39,21 +39,21 @@ plt.rc("axes", unicode_minus=False)
 horizons = ['1H', '2H', '3H', '4H', '5H', '6H']
 mpc_data = {}
 mpc_old_data = {}
-rlmpc_data = {}
+mpc3_data = {}
 
 rl_data = pd.read_csv('data/matching-thesis/stochastic/rl/glamorous-disco-75.csv')
 
 for h in horizons:
-    mpc_path = f'data/matching-thesis/stochastic/mpc/mpc-rh80-dt1800-{h}-0.05.csv'
+    mpc_path = f'data/matching-thesis/deterministic/mpc/mpc-rh80-dt1800-{h}.csv'
     mpc_path2 = f'data/matching-thesis/stochastic/mpc/mpc-rh80-dt1800-{h}-0.05.csv'
-    rlmpc_path = f'data/matching-thesis/stochastic/rlmpc/rl-mpc-glamorous-disco-75-{h}-0.05.csv'
+    mpc_path3 = f'data/matching-thesis/stochastic/mpc/mpc-rh80-dt1800-{h}-0.1.csv'
 
     if os.path.exists(mpc_path):
         mpc_data[h] = pd.read_csv(mpc_path)
     if os.path.exists(mpc_path2):
         mpc_old_data[h] = pd.read_csv(mpc_path2)
-    if os.path.exists(rlmpc_path):
-        rlmpc_data[h] = pd.read_csv(rlmpc_path)
+    if os.path.exists(mpc_path3):
+        mpc3_data[h] = pd.read_csv(mpc_path3)
 
 WIDTH = 87.5 * 0.03937
 HEIGTH = WIDTH*0.75
@@ -64,8 +64,8 @@ fig, ax = plt.subplots(figsize=(WIDTH, HEIGTH), dpi=300)
 colors = cmc.batlow(np.linspace(0, 1, len(horizons)))
 # Get final cumulative rewards for each horizon
 mpc_final_rewards = []
-rlmpc_final_rewards = []
 mpc_old_final_rewards = []
+mpc3_final_rewards = []
 horizon_nums = []
 
 for h in horizons:
@@ -75,23 +75,24 @@ for h in horizons:
     if h in mpc_data:
         cum_rewards = np.cumsum(mpc_data[h]['rewards'])
         mpc_final_rewards.append(cum_rewards.iloc[-1])
-    
-    if h in rlmpc_data:
-        cum_rewards = np.cumsum(rlmpc_data[h]['rewards']) 
-        rlmpc_final_rewards.append(cum_rewards.iloc[-1])
 
     if h in mpc_old_data:
         cum_rewards = np.cumsum(mpc_old_data[h]['rewards'])
         mpc_old_final_rewards.append(cum_rewards.iloc[-1])
+    
+    if h in mpc3_data:
+        cum_rewards = np.cumsum(mpc3_data[h]['rewards']) 
+        mpc3_final_rewards.append(cum_rewards.iloc[-1])
 
-cum_rewards = np.cumsum(rl_data['rewards'])
-rl_final_reward = cum_rewards.iloc[-1]
+
+# cum_rewards = np.cumsum(rl_data['rewards'])
+# rl_final_reward = cum_rewards.iloc[-1]
 
 # Plot final values vs prediction horizon
 ax.plot(horizon_nums[:], mpc_final_rewards[:], 'o-', label='MPC', color=colors[0])
-# ax.plot(horizon_nums[:], mpc_old_final_rewards[:], 'o-', label=r'MPC $\sigma=0.05$', color=colors[1])
-ax.plot(horizon_nums[:], rlmpc_final_rewards[:], 'o-', label=r'RL-MPC', color=colors[-1])
-ax.hlines(rl_final_reward, 1, 6, label='RL', color='grey', linestyle='--')
+ax.plot(horizon_nums[:], mpc_old_final_rewards[:], 'o-', label=r'MPC $\sigma=0.05$', color=colors[1])
+ax.plot(horizon_nums[:], mpc3_final_rewards[:], 'o-', label=r'MPC $\sigma=0.1$', color=colors[-1])
+# ax.hlines(rl_final_reward, 1, 6, label='RL', color='grey', linestyle='--')
 
 ax.set_xlabel('Prediction Horizon (H)')
 ax.set_ylabel('Cumulative Reward')
@@ -101,5 +102,5 @@ plt.tight_layout()
 dir = 'figures/matching-thesis/stochastic/'
 os.makedirs(dir, exist_ok=True)
 
-plt.savefig(dir + 'rl-mpc-sigma=0.05.png', bbox_inches='tight', dpi=300)
+plt.savefig(dir + 'mpc-sigmas.png', bbox_inches='tight', dpi=300)
 plt.show()

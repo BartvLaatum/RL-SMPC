@@ -6,7 +6,7 @@
 PROJECT="matching-thesis"
 ENV_ID="LettuceGreenhouse" 
 ALGORITHM="sac"
-MODEL_NAME="wobbly-brook-60"
+MODEL_NAME="cosmic-bird-70"
 
 # First run value function training
 echo "Training value function..."

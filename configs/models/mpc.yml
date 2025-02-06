@@ -1,5 +1,5 @@
 LettuceGreenhouse:
-  Np: 24  # Prediction horizon for MPC
+  Np: 12  # Prediction horizon for MPC (with dt=1800 -> Np=12 equals 6H horizon)
   Ns: 1   # Number of scenarios for MPC
   sigmad: 0.0 # Standard deviation of the disturbance
   nlp_opts:

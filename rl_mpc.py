@@ -16,9 +16,17 @@ from stable_baselines3.common.vec_env import DummyVecEnv, VecNormalize
 from mpc import MPC
 from envs.lettuce_greenhouse import LettuceGreenhouse
 from RL.rl_func_approximators import qvalue_fn, actor_fn
+from common.noise import parametric_uncertainty
 from common.rl_utils import load_rl_params
-from common.utils import load_disturbances, compute_economic_reward, get_parameters, \
-    load_env_params, load_mpc_params, co2dens2ppm, vaporDens2rh
+from common.utils import (
+    load_disturbances, 
+    compute_economic_reward,
+    get_parameters,
+    load_env_params,
+    load_mpc_params,
+    co2dens2ppm,
+    vaporDens2rh
+)
 
 # Setting the discount factor to 1.0
 # Make sure the loaded agents has the same discount factor.
@@ -263,7 +271,7 @@ class RLMPC(MPC):
 
             # COST FUNCTION WITH PENALTIES
             delta_dw = xs[0, ll+1] - xs[0, ll]
-            J -= compute_economic_reward(delta_dw, p, self.h, us[:,ll])
+            J -= compute_economic_reward(delta_dw, p, self.dt, us[:,ll])
             J += (P[0, ll]+ P[1, ll]+P[2, ll]+P[3, ll]+P[4, ll]+P[5, ll])
 
             # Input rate constraint
@@ -338,11 +346,17 @@ class Experiment:
         save_name: str,
         project_name: str,
         weather_filename: str,
+        uncertainty_scale: float,
+        rng,
+
     ) -> None:
 
         self.project_name = project_name
         self.save_name = save_name
         self.mpc = mpc
+        self.uncertainty_scale = uncertainty_scale
+        self.rng = rng
+
         self.x = np.zeros((self.mpc.nx, self.mpc.N+1))
         self.y = np.zeros((self.mpc.nx, self.mpc.N+1))
         self.x[:, 0] = np.array(mpc.x_initial)
@@ -355,7 +369,7 @@ class Experiment:
             self.mpc.start_day,
             self.mpc.dt,
             self.mpc.Np+1,
-            self.mpc.nd
+            self.mpc.nd,
         )
 
         self.uopt = np.zeros((mpc.nu, mpc.Np, mpc.N+1))
@@ -476,10 +490,6 @@ class Experiment:
                     np.array([self.mpc.x_max[0], self.mpc.N])
                 )
 
-            # This is basically the reference trajectory
-            # x_ref.append(xx[:,-1])
-            # u_ref.append(uu[:,-1])
-
             # Getting Optimal Control Value
             coefs_1 = self.mpc.vf_casadi_model_approx.get_params(TERM_POINT_1.toarray().ravel())
             us_opt, xs_opt, J_mpc_1, Jt_mpc_1, terminal_obs_1 = self.mpc.MPC_func(
@@ -496,8 +506,9 @@ class Experiment:
             self.u[:, ll+1] = us_opt[:, 0].toarray().ravel()
 
             # Evolve State
-            # sys_params = noisy.parametric_uncertainty() if stochastic else nominal_params
-            self.x[:, ll+1] = self.mpc.F(self.x[:, ll], self.u[:, ll+1], self.d[:, ll], p).toarray().ravel()
+            params = parametric_uncertainty(p, self.uncertainty_scale, self.rng)
+
+            self.x[:, ll+1] = self.mpc.F(self.x[:, ll], self.u[:, ll+1], self.d[:, ll], params).toarray().ravel()
             self.y[:, ll+1] = self.mpc.g(self.x[:, ll+1]).toarray().ravel()
 
             delta_dw = self.x[0, ll+1] - self.x[0, ll]

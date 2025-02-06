@@ -40,20 +40,32 @@ horizons = ['1H', '2H', '3H', '4H', '5H', '6H']
 mpc_data = {}
 mpc_old_data = {}
 rlmpc_data = {}
+rlmpc2_data = {}
+rlmpc3_data = {}
 
-rl_data = pd.read_csv('data/matching-thesis/stochastic/rl/glamorous-disco-75.csv')
+rl_data = pd.read_csv('data/matching-thesis/deterministic/rl/cosmic-bird-70.csv')
+rl_data2 = pd.read_csv('data/matching-thesis/deterministic/rl/rosy-cosmos-73.csv')
 
 for h in horizons:
-    mpc_path = f'data/matching-thesis/stochastic/mpc/mpc-rh80-dt1800-{h}-0.05.csv'
-    mpc_path2 = f'data/matching-thesis/stochastic/mpc/mpc-rh80-dt1800-{h}-0.05.csv'
-    rlmpc_path = f'data/matching-thesis/stochastic/rlmpc/rl-mpc-glamorous-disco-75-{h}-0.05.csv'
+    mpc_path = f'data/matching-thesis/deterministic/mpc/mpc-rh80-dt1800-{h}.csv'
+    rlmpc_path = f'data/matching-thesis/deterministic/rlmpc/rl-mpc-rh80-dt1800-cosmic-bird-70-{h}.csv'
+    rlmpc_path2 = f'data/matching-thesis/deterministic/rlmpc/rl-mpc-rh80-dt1800-rosy-cosmos-73-{h}.csv'
+    rlmpc_path3 = f'data/matching-thesis/deterministic/rlmpc/rl-mpc-rh80-dt1800-thesis-agent-{h}.csv'
 
     if os.path.exists(mpc_path):
         mpc_data[h] = pd.read_csv(mpc_path)
-    if os.path.exists(mpc_path2):
-        mpc_old_data[h] = pd.read_csv(mpc_path2)
+    # if os.path.exists(mpc_path2):
+    #     mpc_old_data[h] = pd.read_csv(mpc_path2)
     if os.path.exists(rlmpc_path):
         rlmpc_data[h] = pd.read_csv(rlmpc_path)
+
+    if os.path.exists(rlmpc_path2):
+        rlmpc2_data[h] = pd.read_csv(rlmpc_path2)
+
+
+    if os.path.exists(rlmpc_path3):
+        rlmpc3_data[h] = pd.read_csv(rlmpc_path3)
+
 
 WIDTH = 87.5 * 0.03937
 HEIGTH = WIDTH*0.75
@@ -65,7 +77,10 @@ colors = cmc.batlow(np.linspace(0, 1, len(horizons)))
 # Get final cumulative rewards for each horizon
 mpc_final_rewards = []
 rlmpc_final_rewards = []
-mpc_old_final_rewards = []
+rlmpc2_final_rewards = []
+rlmpc3_final_rewards = []
+
+# mpc_old_final_rewards = []
 horizon_nums = []
 
 for h in horizons:
@@ -80,26 +95,37 @@ for h in horizons:
         cum_rewards = np.cumsum(rlmpc_data[h]['rewards']) 
         rlmpc_final_rewards.append(cum_rewards.iloc[-1])
 
-    if h in mpc_old_data:
-        cum_rewards = np.cumsum(mpc_old_data[h]['rewards'])
-        mpc_old_final_rewards.append(cum_rewards.iloc[-1])
+    if h in rlmpc2_data:
+        cum_rewards = np.cumsum(rlmpc2_data[h]['rewards'])
+        rlmpc2_final_rewards.append(cum_rewards.iloc[-1])
+
+    if h in rlmpc3_data:
+        cum_rewards = np.cumsum(rlmpc3_data[h]['rewards'])
+        rlmpc3_final_rewards.append(cum_rewards.iloc[-1])
+
 
 cum_rewards = np.cumsum(rl_data['rewards'])
 rl_final_reward = cum_rewards.iloc[-1]
+cum_rewards = np.cumsum(rl_data2['rewards'])
+rl2_final_reward = cum_rewards.iloc[-1]
 
 # Plot final values vs prediction horizon
 ax.plot(horizon_nums[:], mpc_final_rewards[:], 'o-', label='MPC', color=colors[0])
 # ax.plot(horizon_nums[:], mpc_old_final_rewards[:], 'o-', label=r'MPC $\sigma=0.05$', color=colors[1])
-ax.plot(horizon_nums[:], rlmpc_final_rewards[:], 'o-', label=r'RL-MPC', color=colors[-1])
-ax.hlines(rl_final_reward, 1, 6, label='RL', color='grey', linestyle='--')
+ax.plot(horizon_nums[:], rlmpc_final_rewards[:], 'o-', label=r'RL-MPC (tanh)', color=colors[1])
+ax.plot(horizon_nums[:], rlmpc2_final_rewards[:], 'o-', label=r'RL-MPC (relu)', color=colors[-1])
+ax.plot(horizon_nums[:1], rlmpc3_final_rewards[:1], 'o-', label=r'RL-MPC (thesis agent)', color=colors[1])
+
+ax.hlines(rl_final_reward, 1, 6, label='RL-tanh', color=colors[1], linestyle='--')
+ax.hlines(rl2_final_reward, 1, 6, label='RL-relu', color=colors[-1], linestyle='--')
 
 ax.set_xlabel('Prediction Horizon (H)')
 ax.set_ylabel('Cumulative Reward')
 ax.legend()
 
 plt.tight_layout()
-dir = 'figures/matching-thesis/stochastic/'
+dir = 'figures/matching-thesis/deterministic/'
 os.makedirs(dir, exist_ok=True)
 
-plt.savefig(dir + 'rl-mpc-sigma=0.05.png', bbox_inches='tight', dpi=300)
+# plt.savefig(dir + 'rl-tanh-relu-thesis-mpc.png', bbox_inches='tight', dpi=300)
 plt.show()

@@ -14,6 +14,7 @@ import gymnasium as gym
 from gymnasium import spaces
 
 from envs.observations import StandardObservations
+from common.noise import parametric_uncertainty
 from common.utils import *
 
 observations = {"StandardObservations": StandardObservations}
@@ -47,7 +48,7 @@ class LettuceGreenhouse(gym.Env):
         ny: int,                # number of greenhouse measurements
         nd: int,                # number of disturbance (weather variables)
         nu: int,                # number of control inputs
-        dt: float,               # control rate of the system in minutes
+        dt: float,              # control rate of the system in minutes
         n_days: int,            # simulation days
         Np: int,                # number of future weather predictions to use
         start_day: int,         # start day of simulation
@@ -59,6 +60,7 @@ class LettuceGreenhouse(gym.Env):
         ub_pen_w: List[float],
         obs_module: str,
         obs_names: List[str],
+        uncertainty_scale: float = 0.0
         ):
         super(LettuceGreenhouse, self).__init__()
         self.weather_filename = weather_filename
@@ -78,6 +80,8 @@ class LettuceGreenhouse(gym.Env):
         self.N = int(self.L//self.dt)     # number of steps to take during episode
         # prediction horizon for weather forecast for observation space
         self.Np = Np
+        
+        self.uncertainty_scale = uncertainty_scale
 
         # greenhouse model parameters
         self.p = get_parameters()
@@ -200,8 +204,10 @@ class LettuceGreenhouse(gym.Env):
         self.x_prev = np.copy(self.x)
         self.y_prev = np.copy(self.y) # Store previous system outputs
 
+        params = parametric_uncertainty(self.p, self.uncertainty_scale, self._np_random)
+
         # transition state next state given action and observe environment
-        self.x = self.F(self.x, self.u, self.d[:, self.timestep], self.p)
+        self.x = self.F(self.x, self.u, self.d[:, self.timestep], params)
         self.y = self.get_y()
         self.timestep += 1
 
@@ -244,7 +250,7 @@ class LettuceGreenhouse(gym.Env):
         """
         Reward function that calculates the reward of the environment.
         """
-        delta_dw  = self.x[0] - self.prev_dw 
+        delta_dw  = self.x[0] - self.prev_dw
         self.econ_rewards = float(compute_economic_reward(delta_dw, self.p, self.dt, u))
         penalties = self._compute_penalty(self.y)
         return self.econ_rewards - penalties
