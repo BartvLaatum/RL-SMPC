@@ -7,8 +7,17 @@ import pandas as pd
 from tqdm import tqdm
 import casadi as ca
 
-from common.utils import load_disturbances, compute_economic_reward, get_parameters, \
-    load_env_params, load_mpc_params, define_model, co2dens2ppm, vaporDens2rh
+from common.noise import parametric_uncertainty
+from common.utils import (
+    load_disturbances, 
+    compute_economic_reward, 
+    get_parameters,
+    load_env_params,
+    load_mpc_params,
+    define_model,
+    co2dens2ppm,
+    vaporDens2rh
+)
 
 
 class MPC:
@@ -239,11 +248,15 @@ class Experiment:
         save_name: str,
         project_name: str,
         weather_filename: str,
+        uncertainty_scale: float,
+        rng,
     ) -> None:
 
         self.project_name = project_name
         self.save_name = save_name
         self.mpc = mpc
+        self.uncertainty_scale = uncertainty_scale
+        self.rng = rng
         self.x = np.zeros((self.mpc.nx, self.mpc.N+1))
         self.y = np.zeros((self.mpc.nx, self.mpc.N+1))
         self.x[:, 0] = np.array(mpc.x_initial)
@@ -286,7 +299,9 @@ class Experiment:
             us_opt, xs_opt, ys_opt, J_opt = self.mpc.MPC_func(self.x[:, ll], self.d[:, ll:ll+self.mpc.Np], self.u[:, ll])
             self.u[:, ll+1] = us_opt[:, 0].toarray().ravel()
 
-            self.x[:, ll+1] = self.mpc.F(self.x[:, ll], self.u[:, ll+1], self.d[:, ll], p).toarray().ravel()
+            params = parametric_uncertainty(p, self.uncertainty_scale, self.rng)
+
+            self.x[:, ll+1] = self.mpc.F(self.x[:, ll], self.u[:, ll+1], self.d[:, ll], params).toarray().ravel()
             self.y[:, ll+1] = self.mpc.g(self.x[:, ll+1]).toarray().ravel()
 
             delta_dw = self.x[0, ll+1] - self.x[0, ll]
