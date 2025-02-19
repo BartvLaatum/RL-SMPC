@@ -11,6 +11,7 @@ if __name__ == "__main__":
     parser.add_argument("--env_id", type=str, default="LettuceGreenhouse")
     parser.add_argument("--mode", type=str, choices=['deterministic', 'stochastic'], required=True)
     parser.add_argument("--seed", type=int, required=True)
+    parser.add_argument("--uncertainty_scale", type=float, help="List of uncertainty scale values")
     parser.add_argument("--weather_filename", default="outdoorWeatherWurGlas2014.csv", type=str)
     args = parser.parse_args()
 
@@ -20,27 +21,25 @@ if __name__ == "__main__":
     env_params = load_env_params(args.env_id)
     mpc_params = load_mpc_params(args.env_id)
     
-    uncertainties = [0.05, 0.1, 0.15]
     dt = env_params["dt"]
     p = get_parameters()
 
     Pred_H = [1, 2, 3, 4, 5, 6]
 
     if args.mode == "stochastic":
-        for uncertainty_scale in uncertainties:
-            N_sims = 1
-            for H in Pred_H:
-                print("Running for horizon: {H},\n Uncertainty scale: {uncertainty_scale}")
-                rng = np.random.default_rng(args.seed)
-                mpc_params["Np"] = int(H * 3600 / dt)
-                save_name = f"{args.save_name}-{H}H-{uncertainty_scale}"
-                mpc = MPC(**env_params, **mpc_params)
-                mpc.define_nlp(p)
+        N_sims = 1
+        for H in Pred_H:
+            print(f"Running for horizon: {H},\n Uncertainty scale: {args.uncertainty_scale}")
+            mpc_params["Np"] = int(H * 3600 / dt)
+            save_name = f"{args.save_name}-{H}H-{args.uncertainty_scale}"
+            mpc = MPC(**env_params, **mpc_params)
+            mpc.define_nlp(p)
 
-                for run in range(N_sims):
-                    exp = Experiment(mpc, save_name, args.project, args.weather_filename, uncertainty_scale, rng)
-                    exp.solve_nmpc(p)
-                    exp.save_results(save_path)
+            for run in range(N_sims):
+                rng = np.random.default_rng(args.seed + run)
+                exp = Experiment(mpc, save_name, args.project, args.weather_filename, args.uncertainty_scale, rng)
+                exp.solve_nmpc(p)
+                exp.save_results(save_path)
     else:
         for H in Pred_H:
             mpc_params["Np"] = int(H * 3600 / dt)

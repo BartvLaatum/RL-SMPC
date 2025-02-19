@@ -27,7 +27,8 @@ if __name__ == "__main__":
     if args.mode == 'stochastic':
         assert args.uncertainty_scale is not None, "Uncertainty scale must be provided for stochastic mode"
         assert (0 <= args.uncertainty_scale < 1), "Uncertainty scale values must be between 0 and 1"
-
+    else:
+        args.uncertainty_scale = 0
     os.makedirs(save_path, exist_ok=True)
 
 
