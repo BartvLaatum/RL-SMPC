@@ -93,7 +93,22 @@ python RL/evaluate_rl.py
     --stochastic STOCHASTIC_OR_DETERMINISTIC
 ```
 
-### 3. RL-MPC
+### 3. Train value function for temporal return learning.
+
+- Saves the resulting value function in:
+
+`train_data/{PROJECT_NAME}/{RL_ALGORITHM}/{STOCHASTIC_OR_DETERMINISTIC}/models/{MODEL_NAME}/vf.zip`
+
+```shell
+python RL/vf_TR_learning.py 
+    --project PROJECT_NAME
+    --env_id ENV_ID
+    --algorithm RL_ALGORITHM
+    --model_name MODEL_NAME
+    --stochastic STOCHASTIC_OR_DETERMINISTIC
+```
+
+### 4. RL-MPC
 
 Run a deterministic RL-MPC instance and save the closed-loop trajectory results:
 
@@ -109,3 +124,41 @@ python rl_mpc.py
     --stochastic STOCHASTIC_OR_DETERMINISTIC
 ```
 
+## Examples
+
+
+### Learning value function
+- Determinstic case
+- Using model `resolute-darling-85`
+```shell
+python RL/vf_TR_learning.py 
+    --project matching-thesis
+    --env_id LettuceGreenhouse
+    --algorithm sac
+    --model_name resolute-darling-85
+```
+
+### Running RL-MPC for varying prediction horizon ranging from 1H-6H
+
+- Deterministic case
+- Using model: `resolute-darling-85`
+```shell
+python experiments/horizon_rlmpc.py
+    --project matching-thesis
+    --env_id LettuceGreenhouse
+    --save_name rlmpc
+    --algorithm sac
+    --model_name resolute-darling-85
+    --mode deterministic
+    --use_trained_vf
+```
+
+
+### Visualize performance of algorithms over 1H-6H horizon
+
+```shell
+python visualisations/rl_mpc.py 
+    --project matching-thesis 
+    --model_names resolute-darling-85 salim 
+    --mode deterministic
+ ```
