@@ -177,9 +177,8 @@ class value_function_TR():
         total_iterations = epochs*len(self.data_loader_train)
         self.scheduler.total_iters = total_iterations
 
-        print (f"Total training iterations:{total_iterations}")
+        print(f"Total training iterations: {total_iterations}")
         self.neural_net.train()
-
         for i in tqdm.tqdm(range(epochs)):
             self.learn(global_step = i*len(self.data_loader_train))
 
@@ -289,6 +288,7 @@ class value_function_TR():
         # Logs for debugging
         obs_log = []
 
+        print(f"Simulating {num_traj} trajectories")
         # simulate N trajectories
         for t in tqdm.tqdm(range(num_traj)):
             # at first simulation; start from initial conditions
