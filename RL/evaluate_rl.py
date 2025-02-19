@@ -41,7 +41,7 @@ def evaluate(model, env):
 
     dones = np.zeros((1,), dtype=bool)
     episode_starts = np.ones((1,), dtype=bool)
-    episode_epi = np.zeros((1,N))
+    episode_epi = np.zeros((1, N))
 
     observations = env.reset()
     timestep = 0
@@ -98,19 +98,25 @@ if __name__ == "__main__":
     parser.add_argument("--env_id", type=str, default="LettuceGreenhouse", help="Environment ID")
     parser.add_argument("--model_name", type=str, default="cosmic-music-45", help="Name of the trained RL model")
     parser.add_argument("--algorithm", type=str, default="ppo", help="Name of the algorithm (ppo or sac)")
-    parser.add_argument("--stochastic", action="store_true", help="Whether to use stochastic control")
+    parser.add_argument("--mode", type=str, choices=['deterministic', 'stochastic'], required=True)
+    parser.add_argument("--uncertainty_scale", type=float, help="Uncertainty scale value")
     args = parser.parse_args()
-
-    if args.stochastic:
-        load_path = f"train_data/{args.project}/{args.algorithm}/stochastic/"
+    
+    assert args.mode in ['deterministic', 'stochastic'], "Mode must be either 'deterministic' or 'stochastic'"
+    if args.mode == 'stochastic':
+        assert args.uncertainty_scale is not None, "Uncertainty scale must be provided for stochastic mode"
+        assert (0 <= args.uncertainty_scale < 1), "Uncertainty scale values must be between 0 and 1"
     else:
-        load_path = f"train_data/{args.project}/{args.algorithm}/deterministic/"
+        args.uncertainty_scale = 0
 
-    save_path = f"data/{args.project}/rl"
+    load_path = f"train_data/{args.project}/{args.algorithm}/{args.mode}/"
+
+    save_path = f"data/{args.project}/{args.mode}/rl"
     os.makedirs(save_path, exist_ok=True)
 
     env_params = load_env_params(args.env_id)
     hyperparameters, rl_env_params = load_rl_params(args.env_id, args.algorithm)
+    env_params["uncertainty_scale"] = args.uncertainty_scale
     env_params.update(rl_env_params)
     eval_env = load_env(args.env_id, args.model_name, env_params, load_path)
 

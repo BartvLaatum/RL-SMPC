@@ -229,7 +229,9 @@ class RLExperimentManager:
                   conversions for activation functions, optimizers, and action noise.
         """
         model_params = self.hyperparameters.copy()
-
+        if model_params["schedule"] == True:
+            model_params["learning_rate"] = self.linear_schedule(model_params["learning_rate"])
+        del model_params["schedule"]
         if "policy_kwargs" in self.hyperparameters:
             policy_kwargs = self.hyperparameters["policy_kwargs"].copy()  # Copy to avoid modifying the original
 
@@ -311,6 +313,26 @@ class RLExperimentManager:
         self.eval_env.close()
         del self.model, self.env, self.eval_env
         gc.collect()
+
+    def linear_schedule(self, initial_value: float):
+        """
+        Linear learning rate schedule.
+
+        :param initial_value: Initial learning rate.
+        :return: schedule that computes
+        current learning rate depending on remaining progress
+        """
+        def func(progress_remaining: float) -> float:
+            """
+            Progress will decrease from 1 (beginning) to 0.
+
+            :param progress_remaining:
+            :return: current learning rate
+            """
+            return progress_remaining * initial_value
+
+        return func
+
 
     # # def build_model_hyperparameters(self, config):
     # #     """Build the model hyperparameters from the given config."""
