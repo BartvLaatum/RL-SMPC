@@ -90,7 +90,7 @@ python RL/evaluate_rl.py
     --env_id ENV_ID
     --model_name MODEL_NAME
     --algorithm RL-ALGORITHM
-    --stochastic STOCHASTIC_OR_DETERMINISTIC
+    --mode STOCHASTIC_OR_DETERMINISTIC
 ```
 
 ### 3. Train value function for temporal return learning.
@@ -155,10 +155,25 @@ python experiments/horizon_rlmpc.py
 
 
 ### Visualize performance of algorithms over 1H-6H horizon
+- Deterministic case
+- For the models: `resolute-darling-85` and `salim`
 
 ```shell
-python visualisations/rl_mpc.py 
+python visualisations/performance_plot.py 
     --project matching-thesis 
     --model_names resolute-darling-85 salim 
     --mode deterministic
  ```
+
+## Results
+
+### Deterministic case
+Example performance of varying horizons in the RL-MPC framework:
+
+![Performance comparison of different prediction horizons](figures/matching-thesis/deterministic/rl-tanh-relu-thesis-mpc-v4.png)
+
+
+### Stochastic case
+Example performance of varying horizons in the RL-MPC framework:
+
+![Performance comparison of different prediction horizons](figures/matching-thesis/stochastic/thesis-agent.png)
