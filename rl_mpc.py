@@ -47,6 +47,7 @@ class RLMPC(MPC):
             rl_model_path: str,
             vf_path,
             use_trained_vf: bool,
+            run: int
             ) -> None:
         super().__init__(**env_params, **mpc_params)
         env_norm = LettuceGreenhouse(**rl_env_params)
@@ -72,9 +73,9 @@ class RLMPC(MPC):
         self.trained_vf = th.load(vf_path)
         self.trained_vf.eval()
         self.use_trained_vf = use_trained_vf
-        self.init_l4casadi()
+        self.init_l4casadi(run)
 
-    def init_l4casadi(self):
+    def init_l4casadi(self, run):
         # --------------------------------
         # --- Casadi NNs and Functions ---
         # --------------------------------
@@ -94,7 +95,7 @@ class RLMPC(MPC):
         self.normalizeState_casadi = ca.Function("normalizeObs", [observation, min_val, max_val], [state_norm])
 
         # Creating casadi verions of the value functions
-        vf_casadi_model = l4c.L4CasADi(self.trained_vf, device="cpu", name="vf")
+        vf_casadi_model = l4c.L4CasADi(self.trained_vf, device="cpu", name=f"vf_{run}")
         obs_sym_vf = ca.MX.sym("obs", 2, 1)
         # TODO: I need to transpose the observation to match the shape of the trained value function
         # since observation: (batch_size, N_features) and trained value function: (N_features, output_size)
@@ -108,13 +109,13 @@ class RLMPC(MPC):
         self.vf_casadi_approx_func =  ca.Function("vf_approx",[obs_sym_vf,self.vf_casadi_model_approx.get_sym_params()],[vf_casadi_approx_sym_out])
 
         # Qf from agent
-        qf_casadi_model = l4c.L4CasADi(qvalue_fn(self.model.critic.q_networks[0]), device="cpu", name="qf") # Q: can we use "cuda" device? 
+        qf_casadi_model = l4c.L4CasADi(qvalue_fn(self.model.critic.q_networks[0]), device="cpu", name=f"qf_{run}") # Q: can we use "cuda" device? 
         obs_and_action_sym = ca.MX.sym("obs_and_a", 15, 1)
         qf_out = qf_casadi_model(obs_and_action_sym.T)
         self.qf_function = ca.Function("qf", [obs_and_action_sym], [qf_out])
 
         # Creating casadi version of the actor
-        actor_casadi_model = l4c.L4CasADi(actor_fn(self.model.actor.latent_pi, self.model.actor.mu), device="cpu", name="actor")
+        actor_casadi_model = l4c.L4CasADi(actor_fn(self.model.actor.latent_pi, self.model.actor.mu), device="cpu", name=f"actor_{run}")
         obs_sym = ca.MX.sym("obs", 12, 1)
         action_out = actor_casadi_model(obs_sym.T)
         self.actor_function = ca.Function("action", [obs_sym], [action_out])
@@ -158,7 +159,7 @@ class RLMPC(MPC):
         
         
         obs = self.eval_env._get_obs()
-        # obs[0] *= 1e-3
+        obs[0] *= 1e-3
         obs_log.append(obs)
         x_log.append(self.eval_env.get_numpy_state().ravel())
 
@@ -173,7 +174,7 @@ class RLMPC(MPC):
             obs_norm = self.norm_obs_agent(obs, self.mean, self.variance).toarray().ravel()
             action = self.actor_function(obs_norm).toarray().ravel()
             obs, reward, done, _,info = self.eval_env.step(action)
-            # obs[0] *= 1e-3
+            obs[0] *= 1e-3
             x = self.eval_env.get_state()
             
             total_cost += reward
@@ -413,12 +414,8 @@ class Experiment:
             self.mpc.rl_guess_us,
             self.mpc.vf_casadi_model_approx.get_params(np.zeros(2))
         )
-        print(J_mpc_1)
-        print(Jt_mpc_1)
-        print(J_mpc_1+Jt_mpc_1)
-
         self.mpc.eval_env.reset()
-        for ll in tqdm(range(self.mpc.N)):
+        for ll in range(self.mpc.N):
             if ll == 0:
                 # Get very first guess and terminal constraint
                 logs = self.mpc.unroll_actor(horizon=self.mpc.Np)
@@ -532,6 +529,43 @@ class Experiment:
         self.econ_rewards[:, ll] = eco_rew
         self.penalties[:, ll] = penalties
         self.rewards[:, ll] = eco_rew - penalties
+
+
+    def get_results(self, run):
+        # Transform weather variables to the right units 
+        self.d[1, :] = co2dens2ppm(self.d[2, :], self.d[1, :])
+        self.d[3, :] = vaporDens2rh(self.d[2, :], self.d[3, :])
+
+        # Create list of arrays to stack
+        arrays = []
+
+        # Time array
+        arrays.append(self.mpc.t / 86400)
+        # State arrays
+        for i in range(self.x.shape[0]):
+            arrays.append(self.x[i, :self.mpc.N])
+            
+        # Output arrays    
+        for i in range(self.y.shape[0]):
+            arrays.append(self.y[i, :self.mpc.N])
+            
+        # Input arrays
+        for i in range(self.u.shape[0]):
+            arrays.append(self.u[i, 1:])
+            
+        # Disturbance arrays
+        for i in range(self.d.shape[0]):
+            arrays.append(self.d[i, :self.mpc.N])
+        
+        # Cost and reward arrays
+        arrays.append(self.J.flatten())
+        arrays.append(self.econ_rewards.flatten())
+        arrays.append(self.penalties.flatten()) 
+        arrays.append(self.rewards.flatten())
+        arrays.append(np.ones(self.mpc.N) * run)
+
+        # Stack all arrays vertically
+        return np.vstack(arrays).T
 
     def save_results(self, save_path):
         """
