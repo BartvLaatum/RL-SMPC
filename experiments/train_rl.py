@@ -1,6 +1,6 @@
 import argparse
 
-from RL.rl import RLExperimentManager
+from RL.rl_experiment_manager import RLExperimentManager
 from common.rl_utils import load_rl_params 
 from common.utils import load_env_params
 
@@ -25,6 +25,10 @@ if __name__ == "__main__":
     if args.mode == 'stochastic':
         assert args.uncertainty_scale is not None, "Uncertainty scale must be provided for stochastic mode"
         assert (0 < args.uncertainty_scale < 1), "Uncertainty scale values must be between 0 and 1"
+        group = f"{args.algorithm}-{args.mode[:3]}-{args.uncertainty_scale}"
+    else:
+        args.uncertainty_scale = 0
+        group = f"{args.algorithm}-{args.mode[:3]}"
 
     env_params = load_env_params(args.env_id)
 
@@ -34,7 +38,6 @@ if __name__ == "__main__":
     env_params.update(rl_env_params)
     env_params["uncertainty_scale"] = args.uncertainty_scale
 
-    group = f"{args.algorithm}-{args.mode[:3]}-{args.uncertainty_scale}"
 
     experiment_manager = RLExperimentManager(
         env_id=args.env_id,

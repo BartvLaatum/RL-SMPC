@@ -1,22 +1,26 @@
 import os
+from os.path import join
 import argparse
+from tqdm import tqdm
+import multiprocessing
 
 import numpy as np
 
+from common.results import Results
 from rl_mpc import RLMPC, Experiment
-from common.utils import load_env_params, load_mpc_params, get_parameters
 from common.rl_utils import load_rl_params
+from common.utils import load_env_params, load_mpc_params, get_parameters
 
 if __name__ == "__main__":
+    # multiprocessing.set_start_method('spawn', force=True)
     parser = argparse.ArgumentParser()
     parser.add_argument("--project", type=str, default="matching-thesis")
     parser.add_argument("--env_id", type=str, default="LettuceGreenhouse")
-    parser.add_argument("--save_name", type=str)
-    parser.add_argument("--algorithm", type=str, default="sac")
     parser.add_argument("--model_name", type=str, default="thesis-agent")
+    parser.add_argument("--algorithm", type=str, default="sac")
+    parser.add_argument("--save_name", type=str)
     parser.add_argument("--mode", type=str, choices=['deterministic', 'stochastic'], required=True)
-    parser.add_argument("--uncertainty_scale", type=float, help="List of uncertainty scale values")
-    parser.add_argument("--seed", type=int, default=666)
+    parser.add_argument("--uncertainty_value", type=float, help="List of uncertainty values")
     parser.add_argument("--use_trained_vf", action="store_true")
     parser.add_argument("--weather_filename", default="outdoorWeatherWurGlas2014.csv", type=str)
     args = parser.parse_args()
@@ -25,10 +29,10 @@ if __name__ == "__main__":
 
     assert args.mode in ['deterministic', 'stochastic'], "Mode must be either 'deterministic' or 'stochastic'"
     if args.mode == 'stochastic':
-        assert args.uncertainty_scale is not None, "Uncertainty scale must be provided for stochastic mode"
-        assert (0 <= args.uncertainty_scale < 1), "Uncertainty scale values must be between 0 and 1"
+        assert args.uncertainty_value is not None, "Uncertainty value must be provided for stochastic mode"
+        assert (0 <= args.uncertainty_value < 1), "Uncertainty values must be between 0 and 1"
     else:
-        args.uncertainty_scale = 0
+        args.uncertainty_value = 0
     os.makedirs(save_path, exist_ok=True)
 
 
@@ -40,36 +44,60 @@ if __name__ == "__main__":
     # load the config file
     env_params = load_env_params(args.env_id)
     mpc_params = load_mpc_params(args.env_id)
+    dt = env_params["dt"]
+    p = get_parameters()
 
     # load the RL parameters
     hyperparameters, rl_env_params = load_rl_params(args.env_id, args.algorithm)
     rl_env_params.update(env_params)
-    Pred_H = [1, 2, 3, 4, 5, 6]
-    for H in Pred_H:
-        rng = np.random.default_rng(args.seed)
-        
-        dt = env_params["dt"]
-        Np = int(H * 3600 / dt)
-        print(Np)
-        mpc_params["Np"] = Np
-        if args.mode == "stochastic":
-            save_name = f"{args.save_name}-{args.model_name}-{H}H-{args.uncertainty_scale}"
-        else:
-            save_name = f"{args.save_name}-{args.model_name}-{H}H"
-        p = get_parameters()
-        rl_mpc = RLMPC(
-            env_params, 
-            mpc_params, 
-            rl_env_params, 
-            args.algorithm,
-            env_path,
-            rl_model_path,
-            vf_path,
-            use_trained_vf=args.use_trained_vf
-        )
-        rl_mpc.define_nlp(p)
 
-        # run the experiment
-        exp = Experiment(rl_mpc, save_name, args.project, args.weather_filename, uncertainty_scale=args.uncertainty_scale, rng=rng)
-        exp.solve_nmpc(p)
-        exp.save_results(save_path)
+    # Pred_H = [1, 2, 3, 4, 5, 6]
+    Pred_H = [6]
+    seed = 666
+
+    col_names = [
+        "time", "x_0", "x_1", "x_2", "x_3", "y_0", "y_1", "y_2", "y_3",
+        "u_0", "u_1", "u_2", "d_0", "d_1", "d_2", "d_3", 
+        "J", "econ_rewards", "penalties", "rewards", "run"
+    ]
+
+    for H in tqdm(Pred_H):
+        results = Results(col_names)
+        if args.mode == "stochastic":
+            print(f"Running stochastic case for horizon: {H},\n Uncertainty value: {args.uncertainty_value}")
+            N_sims = 30
+            save_name = f"{args.save_name}-{args.model_name}-{H}H-{args.uncertainty_value}.csv"
+        else:
+            print(f"Running for horizon: {H}")
+            N_sims = 1
+            save_name = f"{args.save_name}-{args.model_name}-{H}H.csv"
+        
+        mpc_params["Np"] = int(H * 3600 / dt)
+
+
+        def run_experiment(run):
+            rl_mpc = RLMPC(
+                env_params, 
+                mpc_params, 
+                rl_env_params, 
+                args.algorithm,
+                env_path,
+                rl_model_path,
+                vf_path,
+                use_trained_vf=args.use_trained_vf,
+                run=run
+            )
+            rl_mpc.define_nlp(p)
+            rng = np.random.default_rng(seed + run)
+            exp = Experiment(rl_mpc, save_name, args.project, args.weather_filename, args.uncertainty_value, rng)
+            exp.solve_nmpc(p)
+            return exp.get_results(run)
+
+        with multiprocessing.Pool() as pool:
+            data_list = list(tqdm(pool.imap(run_experiment, range(N_sims)), total=N_sims))
+
+        # for run in range(N_sims):
+        #     data = run_experiment(run)
+        #     results.update_result(data)
+
+        results.save(join(save_path,save_name))
