@@ -1,12 +1,14 @@
+import os
 import argparse
+
 import matplotlib.pyplot as plt
 import pandas as pd
-import os
 import numpy as np
 import cmcrameri.cm as cmc
+
 import plot_config
 
-def load_data(model_names, mode, project, uncertainty_scale=None):
+def load_data(model_names, mode, project, uncertainty_value=None):
     """
     Load and organize simulation data from MPC, RL, and RL-MPC experiments.
     This function reads CSV files containing results from different control strategies
@@ -19,7 +21,7 @@ def load_data(model_names, mode, project, uncertainty_scale=None):
         Operating mode of the simulation (e.g., 'train', 'test')  
     project : str
         Project name/folder containing the data
-    uncertainty_scale : float, optional
+    uncertainty_value : float, optional
         Scale factor for uncertainty in MPC predictions. If provided, loads data 
         with specified uncertainty scale suffix.
     Returns
@@ -41,7 +43,7 @@ def load_data(model_names, mode, project, uncertainty_scale=None):
                 rl/
                     {model}.csv
                 mpc/
-                    mpc-rh80-dt1800-{horizon}-{uncertainty}.csv
+                    mpc-{horizon}-{uncertainty}.csv
                 rlmpc/
                     rlmpc-{model}-{horizon}-{uncertainty}.csv
     """
@@ -61,9 +63,9 @@ def load_data(model_names, mode, project, uncertainty_scale=None):
         
         # Load MPC and RL-MPC data for each horizon
         for h in horizons:
-            uncertainty_suffix = f'-{uncertainty_scale}' if uncertainty_scale else ''
+            uncertainty_suffix = f'-{uncertainty_value}' if uncertainty_value else ''
 
-            mpc_path = f'data/{project}/{mode}/mpc/mpc-rh80-dt1800-{h}{uncertainty_suffix}.csv'
+            mpc_path = f'data/{project}/{mode}/mpc/mpc-{h}{uncertainty_suffix}.csv'
             rlmpc_path = f'data/{project}/{mode}/rlmpc/rlmpc-{model}-{h}{uncertainty_suffix}.csv'
 
             if h not in data['mpc'] and os.path.exists(mpc_path):
@@ -76,7 +78,7 @@ def load_data(model_names, mode, project, uncertainty_scale=None):
     
     return data, horizons
 
-def create_plot(project, data, horizons, model_names, mode, uncertainty_scale=None):
+def create_plot(project, data, horizons, model_names, mode, uncertainty_value=None):
     """
     Creates a comparison plot between MPC, RL-MPC and RL approaches across different prediction horizons.
     The function generates a line plot showing the cumulative rewards achieved by different control approaches:
@@ -100,7 +102,7 @@ def create_plot(project, data, horizons, model_names, mode, uncertainty_scale=No
         List of model names used in the RL and RL-MPC approaches
     mode : str
         Either 'stochastic' or 'deterministic' to indicate the environment type
-    uncertainty_scale : float, optional
+    uncertainty_value : float, optional
         Scale of uncertainty for stochastic environments, used in plot title
     Returns
     -------
@@ -113,41 +115,65 @@ def create_plot(project, data, horizons, model_names, mode, uncertainty_scale=No
     
     colors = cmc.batlow(np.linspace(0, 1, len(model_names) + 1))
     horizon_nums = [int(h[0]) for h in horizons]
-    
+
     # Plot MPC results
-    mpc_final_rewards = []
+    mean_mpc_final_rewards = []
+    std_mpc_final_rewards = []
     for h in horizons:
         if h in data['mpc']:
-            cum_rewards = np.cumsum(data['mpc'][h]['rewards'])
-            mpc_final_rewards.append(cum_rewards.iloc[-1])
-    
-    if mpc_final_rewards:
-        ax.plot(horizon_nums, mpc_final_rewards, 'o-', label='MPC', color=colors[0])
-    
+            grouped_runs = data['mpc'][h].groupby("run")
+            cumulative_rewards = grouped_runs['rewards'].sum()
+
+            mean_mpc_final_rewards.append(cumulative_rewards.mean())
+            std_mpc_final_rewards.append(cumulative_rewards.std())
+
+    if mean_mpc_final_rewards:
+        ax.plot(horizon_nums, mean_mpc_final_rewards, 'o-', label='MPC', color=colors[0])
+        if mode == "stochastic":
+            ax.fill_between(
+                horizon_nums, 
+                np.array(mean_mpc_final_rewards) - np.array(std_mpc_final_rewards),
+                np.array(mean_mpc_final_rewards) + np.array(std_mpc_final_rewards),
+                color=colors[0], alpha=0.2
+            )
+
+
     # Plot RL-MPC and RL results for each model
     for idx, model in enumerate(model_names, 1):
         # Plot RL-MPC
-        rlmpc_final_rewards = []
+        mean_rlmpc_final_rewards = []
+        std_rlmpc_final_rewards = []
         for h in horizons:
             if h in data['rlmpc'] and model in data['rlmpc'][h]:
-                cum_rewards = np.cumsum(data['rlmpc'][h][model]['rewards'])
-                rlmpc_final_rewards.append(cum_rewards.iloc[-1])
-        
-        if rlmpc_final_rewards:
-            ax.plot(horizon_nums, rlmpc_final_rewards, 'o-', 
+                grouped_runs = data['rlmpc'][h][model].groupby("run")
+                cumulative_rewards = grouped_runs['rewards'].sum()
+
+                mean_rlmpc_final_rewards.append(cumulative_rewards.mean())
+                std_rlmpc_final_rewards.append(cumulative_rewards.std())
+
+        if mean_rlmpc_final_rewards:
+            ax.plot(horizon_nums[:5], mean_rlmpc_final_rewards, 'o-', 
                    label=f'RL-MPC ({model})', color=colors[idx])
-        
+            if mode == "stochastic":
+                ax.fill_between(
+                    horizon_nums[:5],
+                    np.array(mean_rlmpc_final_rewards) - np.array(std_rlmpc_final_rewards),
+                    np.array(mean_rlmpc_final_rewards) + np.array(std_rlmpc_final_rewards),
+                    color=colors[0], alpha=0.2
+                )
+
+
         # Plot RL horizontal line
         if model in data['rl']:
-            cum_rewards = np.cumsum(data['rl'][model]['rewards'])
-            rl_final_reward = cum_rewards.iloc[-1]
+            sum_rewards = data['rl'][model].groupby("run")['rewards'].sum()
+            rl_final_reward = sum_rewards.mean()
             ax.hlines(rl_final_reward, min(horizon_nums), max(horizon_nums),
                      label=f'RL ({model})', color=colors[idx], linestyle='--')
-    
+
     ax.set_xlabel('Prediction Horizon (H)')
     ax.set_ylabel('Cumulative reward')
     if mode == 'stochastic':
-        ax.set_title(f"Stochastic environment ($\delta={uncertainty_scale}$)")
+        ax.set_title(f"Stochastic environment ($\delta={uncertainty_value}$)")
     else:
         ax.set_title('Deterministic environment')
     ax.legend()
@@ -157,7 +183,7 @@ def create_plot(project, data, horizons, model_names, mode, uncertainty_scale=No
     # Save plot
     dir_path = f'figures/{project}/{mode}/'
     os.makedirs(dir_path, exist_ok=True)
-    uncertainty_suffix = f'-{uncertainty_scale}' if uncertainty_scale else ''
+    uncertainty_suffix = f'-{uncertainty_value}' if uncertainty_value else ''
     # plt.savefig(f'{dir_path}rl-mpc-comparison{uncertainty_suffix}.png', 
     #             bbox_inches='tight', dpi=300)
     plt.show()
@@ -170,12 +196,12 @@ def main():
                         help='List of model names to plot')
     parser.add_argument('--mode', type=str, 
                         choices=['deterministic', 'stochastic'], required=True)
-    parser.add_argument('--uncertainty_scale', type=float,
+    parser.add_argument('--uncertainty_value', type=float,
                         help='Uncertainty scale value for stochastic mode')
     args = parser.parse_args()
 
-    data, horizons = load_data(args.model_names, args.mode, args.project, args.uncertainty_scale)
-    create_plot(args.project, data, horizons, args.model_names, args.mode, args.uncertainty_scale)
+    data, horizons = load_data(args.model_names, args.mode, args.project, args.uncertainty_value)
+    create_plot(args.project, data, horizons, args.model_names, args.mode, args.uncertainty_value)
 
 if __name__ == "__main__":
     main()
