@@ -237,9 +237,9 @@ class LettuceGreenhouse(gym.Env):
         return self.observation_module.compute_obs(self.y, self.u, self.d[:, self.timestep], self.timestep)
 
     def get_info(self, u):
-        info =  {"econ_rewards": self.econ_rewards}
-        # info = {""}
+        info =  {}
         info["EPI"] = self.econ_rewards
+        info["penalty"] = self.penalty
         info["temp_violation"] = self.temp_violation
         info["rh_violation"] = self.rh_violation
         info["co2_violation"] = self.co2_violation
@@ -252,8 +252,8 @@ class LettuceGreenhouse(gym.Env):
         """
         delta_dw  = self.x[0] - self.prev_dw
         self.econ_rewards = float(compute_economic_reward(delta_dw, self.p, self.dt, u))
-        penalties = self._compute_penalty(self.y)
-        return self.econ_rewards - penalties
+        self.penalty = self._compute_penalty(self.y)
+        return self.econ_rewards - self.penalty
 
     def _compute_penalty(self, y: np.ndarray) -> np.ndarray:
         """
@@ -301,6 +301,9 @@ class LettuceGreenhouse(gym.Env):
         """
         return np.zeros((self.nu, ))
 
+    def set_seed(self, seed: int):
+        self._np_random, seed = gym.utils.seeding.np_random(seed)
+
     def reset(self, seed: int = 666):
         """
         Resets environment to starting state.
@@ -322,6 +325,7 @@ class LettuceGreenhouse(gym.Env):
         self.y = self.get_y()
         self.y_prev = np.copy(self.y)
 
+        self.penalty = 0.
         self.econ_rewards = 0
         self.co2_violation = 0.
         self.temp_violation = 0.
