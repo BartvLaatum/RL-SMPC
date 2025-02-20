@@ -1,6 +1,7 @@
 import argparse
 import os
 from os.path import join
+from tqdm import tqdm
 
 import pandas as pd
 import numpy as np
@@ -10,6 +11,7 @@ from stable_baselines3.common.vec_env import VecNormalize, DummyVecEnv
 
 from common.rl_utils import make_vec_env, load_rl_params
 from common.utils import load_env_params
+from common.results import Results
 
 ALG = {"ppo": PPO, 
        "sac": SAC}
@@ -29,6 +31,9 @@ def load_env(env_id, model_name, env_params, load_path):
     return env
 
 def evaluate(model, env):
+    L = env.get_attr("L")[0]
+    dt = env.get_attr("dt")[0]
+    time = (np.arange(0, L, dt)/86400).reshape(1, -1)
     N = env.get_attr("N")[0]
     nx = env.get_attr("nx")[0]
     ny = env.get_attr("ny")[0]
@@ -37,7 +42,9 @@ def evaluate(model, env):
     x = np.zeros((nx, N+1))
     y = np.zeros((ny, N+1))
     u = np.zeros((nu, N+1))
+    d = np.zeros((ny, N+1))
     episode_rewards = np.zeros((1, N))
+    penalties = np.zeros((1, N))
 
     dones = np.zeros((1,), dtype=bool)
     episode_starts = np.ones((1,), dtype=bool)
@@ -49,6 +56,9 @@ def evaluate(model, env):
 
     x[:, 0] = env.get_attr("x0")[0]
     y[:, 0] = env.env_method("get_y")[0]
+    u[:, 0] = env.get_attr("u0")[0]
+    d[:, 0] = env.env_method("get_d")[0]
+
     for timestep in range(N):
         actions, states = model.predict(
             observations,  # type: ignore[arg-type]
@@ -59,38 +69,14 @@ def evaluate(model, env):
         observations, rewards, dones, infos = env.step(actions)
         episode_rewards[:, timestep] += rewards
         episode_epi[:, timestep] += infos[0]["EPI"]
+        penalties[:, timestep] += infos[0]["penalty"]
         if dones.any():
             break
         x[:, timestep+1] = env.env_method("get_state")[0]
         y[:, timestep+1] = env.env_method("get_y")[0]
         u[:, timestep+1] = infos[0]["controls"]
-    return x, u, y, episode_rewards, episode_epi
-
-def save_results(env, save_path, x, u, y, rewards, epi):
-    """
-    """
-    data = {}
-    # transform the weather variables to the right units
-
-    N = env.get_attr("N")[0]
-    L = env.get_attr("L")[0]
-    dt = env.get_attr("dt")[0]
-
-    t = np.arange(0, L + dt, dt)[:-1]
-    data["time"] = t / 86400
-
-    for i in range(x.shape[0]):
-        data[f"x_{i}"] = x[i, :N]
-    for i in range(y.shape[0]):
-        data[f"y_{i}"] = y[i, :N]
-    for i in range(u.shape[0]):
-        data[f"u_{i}"] = u[i, 1:]
-
-
-    data["econ_rewards"] = epi.flatten()
-    data["rewards"] = rewards.flatten()
-    df = pd.DataFrame(data, columns=data.keys())
-    df.to_csv(f"{save_path}/{args.model_name}.csv", index=False)
+        d[:, timestep+1] = env.env_method("get_d")[0]
+    return np.concatenate([time, x[:,:N], y[:,:N], u[:,:N], d[:,:N], episode_epi, penalties, episode_rewards]).T
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
@@ -101,13 +87,15 @@ if __name__ == "__main__":
     parser.add_argument("--mode", type=str, choices=['deterministic', 'stochastic'], required=True)
     parser.add_argument("--uncertainty_scale", type=float, help="Uncertainty scale value")
     args = parser.parse_args()
-    
+
     assert args.mode in ['deterministic', 'stochastic'], "Mode must be either 'deterministic' or 'stochastic'"
     if args.mode == 'stochastic':
         assert args.uncertainty_scale is not None, "Uncertainty scale must be provided for stochastic mode"
         assert (0 <= args.uncertainty_scale < 1), "Uncertainty scale values must be between 0 and 1"
+        n_sims = 30
     else:
         args.uncertainty_scale = 0
+        n_sims = 1
 
     load_path = f"train_data/{args.project}/{args.algorithm}/{args.mode}/"
 
@@ -122,5 +110,22 @@ if __name__ == "__main__":
 
     model = ALG[args.algorithm].load(join(load_path + f"models", f"{args.model_name}/best_model.zip"), device="cpu")
 
-    results = evaluate(model, eval_env)
-    save_results(eval_env, save_path, *results)
+    col_names = [
+        "time", "x_0", "x_1", "x_2", "x_3", "y_0", "y_1", "y_2", "y_3",
+        "u_0", "u_1", "u_2", "d_0", "d_1", "d_2", "d_3", 
+        "econ_rewards", "penalties", "rewards", "run"
+    ]
+    seed = 666
+    results = Results(col_names)
+
+    def run_experiment(run):
+        eval_env.env_method("set_seed", seed+run)
+        data = evaluate(model, eval_env)
+        run_column = np.full((data.shape[0], 1), run)
+        data = np.hstack((data, run_column))
+        return data
+
+    for run in tqdm(range(n_sims)):
+        data = run_experiment(run)
+        results.update_result(data)
+    results.save(join(save_path, f"{args.model_name}.csv"))
