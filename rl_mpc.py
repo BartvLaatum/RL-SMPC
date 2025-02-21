@@ -57,9 +57,8 @@ class RLMPC(MPC):
             norm_obs = True, 
             norm_reward = False, 
             clip_obs = 10.,
-            gamma=GAMMA
+            gamma=GAMMA,
         )
-        print(env_path)
         env_norm = env_norm.load(env_path, env_norm)
         env_norm.training = False
 
@@ -159,7 +158,7 @@ class RLMPC(MPC):
         
         
         obs = self.eval_env._get_obs()
-        obs[0] *= 1e-3
+        # obs[0] *= 1e-3
         obs_log.append(obs)
         x_log.append(self.eval_env.get_numpy_state().ravel())
 
@@ -174,7 +173,7 @@ class RLMPC(MPC):
             obs_norm = self.norm_obs_agent(obs, self.mean, self.variance).toarray().ravel()
             action = self.actor_function(obs_norm).toarray().ravel()
             obs, reward, done, _,info = self.eval_env.step(action)
-            obs[0] *= 1e-3
+            # obs[0] *= 1e-3
             x = self.eval_env.get_state()
             
             total_cost += reward

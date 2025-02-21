@@ -13,7 +13,7 @@ if __name__ == "__main__":
     parser.add_argument("--n_eval_episodes", type=int, default=1, help="Number of episodes to evaluate the agent for")
     parser.add_argument("--n_evals", type=int, default=10, help="Number times we evaluate algorithm during training")
     parser.add_argument("--mode", type=str, choices=['deterministic', 'stochastic'], required=True)
-    parser.add_argument("--uncertainty_scale", type=float, help="List of uncertainty scale values")
+    parser.add_argument("--uncertainty_value", type=float, help="List of uncertainty scale values")
     parser.add_argument("--env_seed", type=int, default=666, help="Random seed for the environment for reproducibility")
     parser.add_argument("--model_seed", type=int, default=666, help="Random seed for the RL-model for reproducibility")
     parser.add_argument("--device", type=str, default="cpu", help="The device to run the experiment on")
@@ -23,11 +23,11 @@ if __name__ == "__main__":
 
     assert args.mode in ['deterministic', 'stochastic'], "Mode must be either 'deterministic' or 'stochastic'"
     if args.mode == 'stochastic':
-        assert args.uncertainty_scale is not None, "Uncertainty scale must be provided for stochastic mode"
-        assert (0 < args.uncertainty_scale < 1), "Uncertainty scale values must be between 0 and 1"
-        group = f"{args.algorithm}-{args.mode[:3]}-{args.uncertainty_scale}"
+        assert args.uncertainty_value is not None, "Uncertainty scale must be provided for stochastic mode"
+        assert (0 < args.uncertainty_value < 1), "Uncertainty scale values must be between 0 and 1"
+        group = f"{args.algorithm}-{args.mode[:3]}-{args.uncertainty_value}"
     else:
-        args.uncertainty_scale = 0
+        args.uncertainty_value = 0
         group = f"{args.algorithm}-{args.mode[:3]}"
 
     env_params = load_env_params(args.env_id)
@@ -36,8 +36,7 @@ if __name__ == "__main__":
     # uncertainties = np.linspace(0.1, 0.3, 7)
     hyperparameters, rl_env_params = load_rl_params(args.env_id, args.algorithm)
     env_params.update(rl_env_params)
-    env_params["uncertainty_scale"] = args.uncertainty_scale
-
+    env_params["uncertainty_scale"] = args.uncertainty_value
 
     experiment_manager = RLExperimentManager(
         env_id=args.env_id,

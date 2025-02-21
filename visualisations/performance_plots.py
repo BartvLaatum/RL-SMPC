@@ -152,13 +152,13 @@ def create_plot(project, data, horizons, model_names, mode, uncertainty_value=No
                 std_rlmpc_final_rewards.append(cumulative_rewards.std())
 
         if mean_rlmpc_final_rewards:
-            ax.plot(horizon_nums[:5], mean_rlmpc_final_rewards, 'o-', 
+            ax.plot(horizon_nums[:2], mean_rlmpc_final_rewards[:2], 'o-', 
                    label=f'RL-MPC ({model})', color=colors[idx])
             if mode == "stochastic":
                 ax.fill_between(
-                    horizon_nums[:5],
-                    np.array(mean_rlmpc_final_rewards) - np.array(std_rlmpc_final_rewards),
-                    np.array(mean_rlmpc_final_rewards) + np.array(std_rlmpc_final_rewards),
+                    horizon_nums[:2],
+                    np.array(mean_rlmpc_final_rewards[:2]) - np.array(std_rlmpc_final_rewards[:2]),
+                    np.array(mean_rlmpc_final_rewards[:2]) + np.array(std_rlmpc_final_rewards[:2]),
                     color=colors[0], alpha=0.2
                 )
 
@@ -184,8 +184,8 @@ def create_plot(project, data, horizons, model_names, mode, uncertainty_value=No
     dir_path = f'figures/{project}/{mode}/'
     os.makedirs(dir_path, exist_ok=True)
     uncertainty_suffix = f'-{uncertainty_value}' if uncertainty_value else ''
-    # plt.savefig(f'{dir_path}rl-mpc-comparison{uncertainty_suffix}.png', 
-    #             bbox_inches='tight', dpi=300)
+    plt.savefig(f'{dir_path}rl-mpc-comparison{uncertainty_suffix}.png', 
+                bbox_inches='tight', dpi=300)
     plt.show()
 
 def main():

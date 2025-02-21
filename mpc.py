@@ -4,7 +4,6 @@ from typing import Any, Dict, List
 
 import numpy as np
 import pandas as pd
-from tqdm import tqdm
 import casadi as ca
 
 from common.noise import parametric_uncertainty
@@ -294,7 +293,7 @@ class Experiment:
             np.ndarray: the gradient of the cost function
             np.ndarray: the hessian of the cost function
         """
-        for ll in tqdm(range(self.mpc.N)):
+        for ll in range(self.mpc.N):
 
             us_opt, xs_opt, ys_opt, J_opt = self.mpc.MPC_func(self.x[:, ll], self.d[:, ll:ll+self.mpc.Np], self.u[:, ll])
             self.u[:, ll+1] = us_opt[:, 0].toarray().ravel()
@@ -324,6 +323,43 @@ class Experiment:
         self.econ_rewards[:, step] = eco_rew
         self.penalties[:, step] = penalties
         self.rewards[:, step] = eco_rew - penalties
+
+    def get_results(self, run):
+        # Transform weather variables to the right units 
+        self.d[1, :] = co2dens2ppm(self.d[2, :], self.d[1, :])
+        self.d[3, :] = vaporDens2rh(self.d[2, :], self.d[3, :])
+
+        # Create list of arrays to stack
+        arrays = []
+
+        # Time array
+        arrays.append(self.mpc.t / 86400)
+        # State arrays
+        for i in range(self.x.shape[0]):
+            arrays.append(self.x[i, :self.mpc.N])
+            
+        # Output arrays    
+        for i in range(self.y.shape[0]):
+            arrays.append(self.y[i, :self.mpc.N])
+            
+        # Input arrays
+        for i in range(self.u.shape[0]):
+            arrays.append(self.u[i, 1:])
+            
+        # Disturbance arrays
+        for i in range(self.d.shape[0]):
+            arrays.append(self.d[i, :self.mpc.N])
+        
+        # Cost and reward arrays
+        arrays.append(self.J.flatten())
+        arrays.append(self.econ_rewards.flatten())
+        arrays.append(self.penalties.flatten()) 
+        arrays.append(self.rewards.flatten())
+        arrays.append(np.ones(self.mpc.N) * run)
+
+        # Stack all arrays vertically
+        return np.vstack(arrays).T
+
 
     def save_results(self, save_path):
         """

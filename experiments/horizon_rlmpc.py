@@ -10,9 +10,29 @@ from common.results import Results
 from rl_mpc import RLMPC, Experiment
 from common.rl_utils import load_rl_params
 from common.utils import load_env_params, load_mpc_params, get_parameters
+from functools import partial
+
+def run_experiment(run, env_params, mpc_params, rl_env_params, args, env_path, rl_model_path, vf_path, p, seed, save_name):
+    rl_mpc = RLMPC(
+        env_params, 
+        mpc_params, 
+        rl_env_params, 
+        args.algorithm,
+        env_path,
+        rl_model_path,
+        vf_path,
+        use_trained_vf=args.use_trained_vf,
+        run=run
+    )
+    rl_mpc.define_nlp(p)
+    rng = np.random.default_rng(seed + run)
+    exp = Experiment(rl_mpc, save_name, args.project, args.weather_filename, args.uncertainty_value, rng)
+    exp.solve_nmpc(p)
+    return exp.get_results(run)
+
 
 if __name__ == "__main__":
-    # multiprocessing.set_start_method('spawn', force=True)
+    ctx = multiprocessing.get_context("spawn")
     parser = argparse.ArgumentParser()
     parser.add_argument("--project", type=str, default="matching-thesis")
     parser.add_argument("--env_id", type=str, default="LettuceGreenhouse")
@@ -50,9 +70,10 @@ if __name__ == "__main__":
     # load the RL parameters
     hyperparameters, rl_env_params = load_rl_params(args.env_id, args.algorithm)
     rl_env_params.update(env_params)
+    rl_env_params["uncertainty_scale"] = 0
 
-    # Pred_H = [1, 2, 3, 4, 5, 6]
-    Pred_H = [6]
+    Pred_H = [1, 2, 3, 4, 5, 6]
+    # Pred_H = [6]
     seed = 666
 
     col_names = [
@@ -75,29 +96,20 @@ if __name__ == "__main__":
         mpc_params["Np"] = int(H * 3600 / dt)
 
 
-        def run_experiment(run):
-            rl_mpc = RLMPC(
-                env_params, 
-                mpc_params, 
-                rl_env_params, 
-                args.algorithm,
-                env_path,
-                rl_model_path,
-                vf_path,
-                use_trained_vf=args.use_trained_vf,
-                run=run
-            )
-            rl_mpc.define_nlp(p)
-            rng = np.random.default_rng(seed + run)
-            exp = Experiment(rl_mpc, save_name, args.project, args.weather_filename, args.uncertainty_value, rng)
-            exp.solve_nmpc(p)
-            return exp.get_results(run)
-
-        with multiprocessing.Pool() as pool:
-            data_list = list(tqdm(pool.imap(run_experiment, range(N_sims)), total=N_sims))
-
-        # for run in range(N_sims):
-        #     data = run_experiment(run)
-        #     results.update_result(data)
+        with ctx.Pool(processes=6) as pool:
+            run_exp = partial(run_experiment, 
+                env_params=env_params,
+                mpc_params=mpc_params,
+                rl_env_params=rl_env_params,
+                args=args,
+                env_path=env_path,
+                rl_model_path=rl_model_path,
+                vf_path=vf_path,
+                p=p,
+                seed=seed,
+                save_name=save_name)
+            data_list = list(tqdm(pool.imap(run_exp, range(N_sims)), total=N_sims))
+        for data in data_list:
+            results.update_result(data)
 
         results.save(join(save_path,save_name))
