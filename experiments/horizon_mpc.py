@@ -16,16 +16,16 @@ if __name__ == "__main__":
     parser.add_argument("--save_name", required=True, type=str)
     parser.add_argument("--env_id", type=str, default="LettuceGreenhouse")
     parser.add_argument("--mode", type=str, choices=['deterministic', 'stochastic'], required=True)
-    parser.add_argument("--uncertainty_scale", type=float, help="List of uncertainty scale values")
+    parser.add_argument("--uncertainty_value", type=float, help="List of uncertainty scale values")
     parser.add_argument("--weather_filename", default="outdoorWeatherWurGlas2014.csv", type=str)
     args = parser.parse_args()
 
     assert args.mode in ['deterministic', 'stochastic'], "Mode must be either 'deterministic' or 'stochastic'"
     if args.mode == 'stochastic':
-        assert args.uncertainty_scale is not None, "Uncertainty scale must be provided for stochastic mode"
-        assert (0 <= args.uncertainty_scale < 1), "Uncertainty scale values must be between 0 and 1"
+        assert args.uncertainty_value is not None, "Uncertainty scale must be provided for stochastic mode"
+        assert (0 <= args.uncertainty_value < 1), "Uncertainty scale values must be between 0 and 1"
     else:
-        args.uncertainty_scale = 0
+        args.uncertainty_value = 0
 
     save_path = f"data/{args.project}/{args.mode}/mpc"
     os.makedirs(save_path, exist_ok=True)
@@ -48,9 +48,9 @@ if __name__ == "__main__":
     for H in tqdm(Pred_H):
         results = Results(col_names)
         if args.mode == "stochastic":
-            print(f"Running stochastic case for horizon: {H},\n Uncertainty scale: {args.uncertainty_scale}")
+            print(f"Running stochastic case for horizon: {H},\n Uncertainty value: {args.uncertainty_value}")
             N_sims = 30
-            save_name = f"{args.save_name}-{H}H-{args.uncertainty_scale}.csv"
+            save_name = f"{args.save_name}-{H}H-{args.uncertainty_value}.csv"
         else:
             print(f"Running for horizon: {H}")
             N_sims = 1
@@ -63,7 +63,7 @@ if __name__ == "__main__":
             mpc = MPC(**env_params, **mpc_params)
             mpc.define_nlp(p)
             rng = np.random.default_rng(seed + run)
-            exp = Experiment(mpc, save_name, args.project, args.weather_filename, args.uncertainty_scale, rng)
+            exp = Experiment(mpc, save_name, args.project, args.weather_filename, args.uncertainty_value, rng)
             exp.solve_nmpc(p)
             return exp.get_results(run)
 

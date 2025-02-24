@@ -60,7 +60,7 @@ class LettuceGreenhouse(gym.Env):
         ub_pen_w: List[float],
         obs_module: str,
         obs_names: List[str],
-        uncertainty_scale: float = 0.0
+        uncertainty_value: float,
         ):
         super(LettuceGreenhouse, self).__init__()
         self.weather_filename = weather_filename
@@ -81,7 +81,7 @@ class LettuceGreenhouse(gym.Env):
         # prediction horizon for weather forecast for observation space
         self.Np = Np
         
-        self.uncertainty_scale = uncertainty_scale
+        self.uncertainty_value = uncertainty_value
 
         # greenhouse model parameters
         self.p = get_parameters()
@@ -204,7 +204,7 @@ class LettuceGreenhouse(gym.Env):
         self.x_prev = np.copy(self.x)
         self.y_prev = np.copy(self.y) # Store previous system outputs
 
-        params = parametric_uncertainty(self.p, self.uncertainty_scale, self._np_random)
+        params = parametric_uncertainty(self.p, self.uncertainty_value, self._np_random)
 
         # transition state next state given action and observe environment
         self.x = self.F(self.x, self.u, self.d[:, self.timestep], params)

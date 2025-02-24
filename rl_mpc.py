@@ -347,15 +347,14 @@ class Experiment:
         save_name: str,
         project_name: str,
         weather_filename: str,
-        uncertainty_scale: float,
+        uncertainty_value: float,
         rng,
-
     ) -> None:
 
         self.project_name = project_name
         self.save_name = save_name
         self.mpc = mpc
-        self.uncertainty_scale = uncertainty_scale
+        self.uncertainty_value = uncertainty_value
         self.rng = rng
 
         self.x = np.zeros((self.mpc.nx, self.mpc.N+1))
@@ -462,7 +461,7 @@ class Experiment:
 
                 x_guess_1 = np.roll(xs_opt, shift=-1,axis=1)
                 x_guess_1[:,-1] = np.copy(xx[:,-1])
-
+                breakpoint()
                 TERM_POINT_1 = np.copy(logs_1['obs'][:,-1])
                 TERM_POINT_1 = np.array([TERM_POINT_1[0],TERM_POINT_1[7]])
                 TERM_POINT_1 = self.mpc.normalizeState_casadi(
@@ -503,7 +502,7 @@ class Experiment:
             self.u[:, ll+1] = us_opt[:, 0].toarray().ravel()
 
             # Evolve State
-            params = parametric_uncertainty(p, self.uncertainty_scale, self.rng)
+            params = parametric_uncertainty(p, self.uncertainty_value, self.rng)
 
             self.x[:, ll+1] = self.mpc.F(self.x[:, ll], self.u[:, ll+1], self.d[:, ll], params).toarray().ravel()
             self.y[:, ll+1] = self.mpc.g(self.x[:, ll+1]).toarray().ravel()
@@ -613,28 +612,35 @@ if __name__ == "__main__":
     vf_path = f"{load_path}/models/{args.model_name}/vf.zip"
     env_path = f"{load_path}/envs/{args.model_name}/best_vecnormalize.pkl"
 
+    uncertainty_value = 0.05
+
     # load the config file
     env_params = load_env_params(args.env_id)
     mpc_params = load_mpc_params(args.env_id)
+    mpc_params["uncertainty_value"] = uncertainty_value
 
     # load the RL parameters
     hyperparameters, rl_env_params = load_rl_params(args.env_id, args.algorithm)
     rl_env_params.update(env_params)
+    rl_env_params["uncertainty_value"] = uncertainty_value
 
     # define the RL-MPC
     p = get_parameters()
     rl_mpc = RLMPC(
         env_params, 
         mpc_params, 
-        rl_env_params, 
+        rl_env_params,
+        args.algorithm,
         env_path,
         rl_model_path,
         vf_path,
-        use_trained_vf=args.use_trained_vf
+        use_trained_vf=args.use_trained_vf,
+        run=0
     )
     rl_mpc.define_nlp(p)
 
     # run the experiment
-    exp = Experiment(rl_mpc, args.save_name, args.project, args.weather_filename)
+    rng = np.random.default_rng(0)
+    exp = Experiment(rl_mpc, args.save_name, args.project, args.weather_filename, uncertainty_value, rng)
     exp.solve_nmpc(p)
     exp.save_results(save_path)

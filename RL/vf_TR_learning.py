@@ -12,20 +12,26 @@ if __name__ == "__main__":
     parser.add_argument('--env_id', type=str, help='Name of the environment to be used for generating data points and trajectories')
     parser.add_argument('--algorithm', type=str, help='Name of the RL algorithm to be loaded')
     parser.add_argument('--model_name', type=str, help='Path to the model to be used for generating data points and trajectories')
-    parser.add_argument('--stochastic', action='store_true', help='Flag to indicate if the simulation should be stochastic')
+    parser.add_argument("--mode", type=str, choices=['deterministic', 'stochastic'], required=True)
+    parser.add_argument("--uncertainty_value", type=float, help="List of uncertainty scale values")
     args = parser.parse_args()
     # Load model and environment
     path = f"train_data/{args.project}/{args.algorithm}"
     # wandb.init(config=args)
 
-    if args.stochastic:
-        model_path = f"{path}/stochastic/models/{args.model_name}/best_model.zip"
-        env_path = f"{path}/stochastic/envs/{args.model_name}/best_vecnormalize.pkl"
+    model_path = f"{path}/{args.mode}/models/{args.model_name}/best_model.zip"
+    env_path = f"{path}/{args.mode}/envs/{args.model_name}/best_vecnormalize.pkl"
+
+    assert args.mode in ['deterministic', 'stochastic'], "Mode must be either 'deterministic' or 'stochastic'"
+    if args.mode == 'stochastic':
+        assert args.uncertainty_value is not None, "Uncertainty scale must be provided for stochastic mode"
+        assert (0 < args.uncertainty_value < 1), "Uncertainty scale values must be between 0 and 1"
     else:
-        model_path = f"{path}/deterministic/models/{args.model_name}/best_model.zip"
-        env_path = f"{path}/deterministic/envs/{args.model_name}/best_vecnormalize.pkl"
+        args.uncertainty_value = 0
+
 
     env_params = load_env_params(args.env_id)
+    env_params["uncertainty_scale"] = args.uncertainty_value
     hyperparameters, rl_env_params = load_rl_params(args.env_id, args.algorithm)
     env_params.update(rl_env_params)
     L = env_params["n_days"]*86400
@@ -47,7 +53,7 @@ if __name__ == "__main__":
         spread=0.5,
         model_path=model_path, 
         env_path=env_path, 
-        stochastic=args.stochastic,
+        stochastic=args.mode,
     )
 
     config = {
@@ -101,8 +107,5 @@ if __name__ == "__main__":
 
     # Create folders for export
     # current_day_time = datetime.datetime.now().strftime("%Y%m%d_%H%M")
-    if args.stochastic:
-        save_path = f"train_data/{args.project}/{args.algorithm}/stochastic/models/{args.model_name}/vf.zip"
-    else:
-        save_path = f"train_data/{args.project}/{args.algorithm}/deterministic/models/{args.model_name}/vf.zip"
+    save_path = f"train_data/{args.project}/{args.algorithm}/{args.mode}/models/{args.model_name}/vf.zip"
     torch.save(my_vf.neural_net, save_path)

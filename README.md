@@ -159,7 +159,7 @@ python experiments/horizon_rlmpc.py
 - For the models: `resolute-darling-85` and `salim`
 
 ```shell
-python visualisations/performance_plot.py 
+python visualisations/performance_plots.py 
     --project matching-thesis 
     --model_names resolute-darling-85 salim 
     --mode deterministic

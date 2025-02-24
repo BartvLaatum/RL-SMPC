@@ -60,7 +60,7 @@ class MPC:
             Np: int,
             Ns: int,
             start_day: int,
-            sigmad: float,
+            uncertainty_value: float,
             lb_pen_w: List[float],
             ub_pen_w: List[float],
             constraints: Dict[str, Any],
@@ -83,7 +83,7 @@ class MPC:
         self.lb_pen_w = np.expand_dims(lb_pen_w, axis=0)
         self.ub_pen_w = np.expand_dims(ub_pen_w, axis=0)
         self.Ns = Ns
-        self.sigmad = sigmad
+        self.uncertainty_value = uncertainty_value
         self.lbg = []
         self.ubg = []
         self.constraints = constraints
@@ -247,14 +247,14 @@ class Experiment:
         save_name: str,
         project_name: str,
         weather_filename: str,
-        uncertainty_scale: float,
+        uncertainty_value: float,
         rng,
     ) -> None:
 
         self.project_name = project_name
         self.save_name = save_name
         self.mpc = mpc
-        self.uncertainty_scale = uncertainty_scale
+        self.uncertainty_value = uncertainty_value
         self.rng = rng
         self.x = np.zeros((self.mpc.nx, self.mpc.N+1))
         self.y = np.zeros((self.mpc.nx, self.mpc.N+1))
@@ -298,7 +298,7 @@ class Experiment:
             us_opt, xs_opt, ys_opt, J_opt = self.mpc.MPC_func(self.x[:, ll], self.d[:, ll:ll+self.mpc.Np], self.u[:, ll])
             self.u[:, ll+1] = us_opt[:, 0].toarray().ravel()
 
-            params = parametric_uncertainty(p, self.uncertainty_scale, self.rng)
+            params = parametric_uncertainty(p, self.uncertainty_value, self.rng)
 
             self.x[:, ll+1] = self.mpc.F(self.x[:, ll], self.u[:, ll+1], self.d[:, ll], params).toarray().ravel()
             self.y[:, ll+1] = self.mpc.g(self.x[:, ll+1]).toarray().ravel()

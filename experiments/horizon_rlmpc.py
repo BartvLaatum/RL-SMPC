@@ -70,10 +70,9 @@ if __name__ == "__main__":
     # load the RL parameters
     hyperparameters, rl_env_params = load_rl_params(args.env_id, args.algorithm)
     rl_env_params.update(env_params)
-    rl_env_params["uncertainty_scale"] = 0
+    rl_env_params["uncertainty_value"] = 0
 
     Pred_H = [1, 2, 3, 4, 5, 6]
-    # Pred_H = [6]
     seed = 666
 
     col_names = [
