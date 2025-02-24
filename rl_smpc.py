@@ -1,6 +1,7 @@
 import os
 import argparse
 from typing import Any, Dict, List
+from tqdm import tqdm
 
 import numpy as np
 import pandas as pd
@@ -417,7 +418,7 @@ class Experiment:
             self.mpc.vf_casadi_model_approx.get_params(np.zeros(2))
         )
         self.mpc.eval_env.reset()
-        for ll in range(self.mpc.N):
+        for ll in tqdm(range(self.mpc.N)):
             if ll == 0:
                 # Get very first guess and terminal constraint
                 logs = self.mpc.unroll_actor(horizon=self.mpc.Np)
@@ -449,9 +450,8 @@ class Experiment:
             else:
                 # Get the optimal control value
                 end_u = np.copy(us_opt[:, -1])
-                end_x = np.copy(xs_opt[:, -1])
-                end_xx = np.copy(xs_opt[:, -2])
-
+                end_x = np.copy(xs_opt[:4, -1])
+                end_xx = np.copy(xs_opt[:4, -2])
                 # Set environment to this state
                 self.mpc.eval_env.set_env_state(end_x, end_xx, end_u, ll+self.mpc.Np-1)
                 logs_1 = self.mpc.unroll_actor(horizon=1)   # TODO: why is this horizon=1?
@@ -463,7 +463,7 @@ class Experiment:
                 u_guess_1 = np.roll(us_opt, shift=-1, axis=1)
                 u_guess_1[:,-1] = np.copy(uu[:,-1])
 
-                x_guess_1 = np.roll(xs_opt, shift=-1,axis=1)
+                x_guess_1 = np.roll(xs_opt[:4,:], shift=-1, axis=1)
                 x_guess_1[:,-1] = np.copy(xx[:,-1])
 
                 TERM_POINT_1 = np.copy(logs_1['obs'][:,-1])
@@ -612,31 +612,27 @@ if __name__ == "__main__":
     os.makedirs(save_path, exist_ok=True)
     uncertainty_value = 0.05
 
+    # load the environment parameters
     env_params = load_env_params(args.env_id)
     mpc_params = load_mpc_params(args.env_id)
     mpc_params["uncertainty_value"] = uncertainty_value
-
-    H = [1, 2, 3, 4, 5, 6]
-    mpc_params["Ns"] = 10
-
-
-    rl_model_path = f"{load_path}/models/{args.model_name}/best_model.zip"
-    vf_path = f"{load_path}/models/{args.model_name}/vf.zip"
-    env_path = f"{load_path}/envs/{args.model_name}/best_vecnormalize.pkl"
-
-    # load the config file
-    env_params = load_env_params(args.env_id)
-    mpc_params = load_mpc_params(args.env_id)
 
     # load the RL parameters
     hyperparameters, rl_env_params = load_rl_params(args.env_id, args.algorithm)
     rl_env_params.update(env_params)
     rl_env_params["uncertainty_value"] = uncertainty_value
+
+    # the paths to the RL models and environment
+    rl_model_path = f"{load_path}/models/{args.model_name}/best_model.zip"
+    vf_path = f"{load_path}/models/{args.model_name}/vf.zip"
+    env_path = f"{load_path}/envs/{args.model_name}/best_vecnormalize.pkl"
+
+
     # run the experiment
     H = [1, 2, 3, 4, 5, 6]
-    mpc_params["Ns"] = 10
+    mpc_params["Ns"] = 5
     for h in H:
-        save_name = f"{args.save_name}-{h}H-{uncertainty_value}"
+        save_name = f"{args.save_name}-{h}H-{mpc_params['Ns']}Ns-{uncertainty_value}"
         mpc_params["rng"] = np.random.default_rng(42)
         mpc_params["Np"] = int(h * 3600 / env_params["dt"])
 
