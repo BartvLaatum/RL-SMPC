@@ -36,7 +36,7 @@ if __name__ == "__main__":
     # uncertainties = np.linspace(0.1, 0.3, 7)
     hyperparameters, rl_env_params = load_rl_params(args.env_id, args.algorithm)
     env_params.update(rl_env_params)
-    env_params["uncertainty_scale"] = args.uncertainty_value
+    env_params["uncertainty_value"] = args.uncertainty_value
 
     experiment_manager = RLExperimentManager(
         env_id=args.env_id,

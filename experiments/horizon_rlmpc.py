@@ -26,8 +26,8 @@ def run_experiment(run, env_params, mpc_params, rl_env_params, args, env_path, r
     )
     rl_mpc.define_nlp(p)
     rng = np.random.default_rng(seed + run)
-    exp = Experiment(rl_mpc, save_name, args.project, args.weather_filename, args.uncertainty_value, rng)
-    exp.solve_nmpc(p)
+    exp = Experiment(rl_mpc, save_name, args.project, args.weather_filename, args.uncertainty_value, p, rng)
+    exp.solve_nmpc()
     return exp.get_results(run)
 
 
@@ -94,21 +94,38 @@ if __name__ == "__main__":
         
         mpc_params["Np"] = int(H * 3600 / dt)
 
-
-        with ctx.Pool(processes=6) as pool:
-            run_exp = partial(run_experiment, 
-                env_params=env_params,
-                mpc_params=mpc_params,
-                rl_env_params=rl_env_params,
-                args=args,
-                env_path=env_path,
-                rl_model_path=rl_model_path,
-                vf_path=vf_path,
-                p=p,
-                seed=seed,
-                save_name=save_name)
-            data_list = list(tqdm(pool.imap(run_exp, range(N_sims)), total=N_sims))
-        for data in data_list:
+        run_exp = partial(
+            run_experiment, 
+            env_params=env_params,
+            mpc_params=mpc_params,
+            rl_env_params=rl_env_params,
+            args=args,
+            env_path=env_path,
+            rl_model_path=rl_model_path,
+            vf_path=vf_path,
+            p=p,
+            seed=seed,
+            save_name=save_name
+        )
+        for run in tqdm(range(N_sims)):
+            data = run_exp(run)
             results.update_result(data)
+
+        # with ctx.Pool(processes=10) as pool:
+            # run_exp = partial(run_experiment, 
+            #     env_params=env_params,
+            #     mpc_params=mpc_params,
+            #     rl_env_params=rl_env_params,
+            #     args=args,
+            #     env_path=env_path,
+            #     rl_model_path=rl_model_path,
+            #     vf_path=vf_path,
+            #     p=p,
+            #     seed=seed,
+            #     save_name=save_name)
+            # data_list = list(tqdm(pool.imap(run_exp, range(N_sims)), total=N_sims))
+
+        # for data in data_list:
+        #     results.update_result(data)
 
         results.save(join(save_path,save_name))

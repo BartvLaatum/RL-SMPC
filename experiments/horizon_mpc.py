@@ -13,8 +13,8 @@ from common.utils import load_env_params, load_mpc_params, get_parameters
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--project", required=True, type=str)
-    parser.add_argument("--save_name", required=True, type=str)
     parser.add_argument("--env_id", type=str, default="LettuceGreenhouse")
+    parser.add_argument("--save_name", required=True, type=str)
     parser.add_argument("--mode", type=str, choices=['deterministic', 'stochastic'], required=True)
     parser.add_argument("--uncertainty_value", type=float, help="List of uncertainty scale values")
     parser.add_argument("--weather_filename", default="outdoorWeatherWurGlas2014.csv", type=str)
@@ -32,11 +32,12 @@ if __name__ == "__main__":
 
     env_params = load_env_params(args.env_id)
     mpc_params = load_mpc_params(args.env_id)
-    
+
     dt = env_params["dt"]
     p = get_parameters()
 
     Pred_H = [1, 2, 3, 4, 5, 6]
+    # Pred_H = [1]
     seed = 666
 
     col_names = [
@@ -58,16 +59,15 @@ if __name__ == "__main__":
         # update the prediction horizon
         mpc_params["Np"] = int(H * 3600 / dt)
 
-
         def run_experiment(run):
             mpc = MPC(**env_params, **mpc_params)
             mpc.define_nlp(p)
             rng = np.random.default_rng(seed + run)
-            exp = Experiment(mpc, save_name, args.project, args.weather_filename, args.uncertainty_value, rng)
-            exp.solve_nmpc(p)
+            exp = Experiment(mpc, save_name, args.project, args.weather_filename, args.uncertainty_value, p, rng)
+            exp.solve_nmpc()
             return exp.get_results(run)
 
-        with Pool() as pool:
+        with Pool(processes=10) as pool:
             data_list = list(tqdm(pool.imap(run_experiment, range(N_sims)), total=N_sims))
 
         for data in data_list:
