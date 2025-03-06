@@ -90,6 +90,7 @@ class RLMPC(MPC):
         max_val = ca.MX.sym("max_val")
         obs_norm = 10 * ((observation - min_val) / (max_val - min_val)) # TODO: Should it use parameters from SHARED.params instead of 10 and 5?
         normalizeObs_casadi = ca.Function("normalizeObs", [observation, min_val, max_val], [obs_norm])
+
         state_norm = 10 * ((observation - min_val) / (max_val - min_val)) - 5 # TODO: Should it use parameters from SHARED.params instead of 10 and 5?
         self.normalizeState_casadi = ca.Function("normalizeObs", [observation, min_val, max_val], [state_norm])
 
@@ -158,7 +159,6 @@ class RLMPC(MPC):
         
         
         obs = self.eval_env._get_obs()
-        # obs[0] *= 1e-3
         obs_log.append(obs)
         x_log.append(self.eval_env.get_numpy_state().ravel())
 
@@ -173,7 +173,6 @@ class RLMPC(MPC):
             obs_norm = self.norm_obs_agent(obs, self.mean, self.variance).toarray().ravel()
             action = self.actor_function(obs_norm).toarray().ravel()
             obs, reward, done, _,info = self.eval_env.step(action)
-            # obs[0] *= 1e-3
             x = self.eval_env.get_state()
             
             total_cost += reward
@@ -245,8 +244,8 @@ class RLMPC(MPC):
         self.opti.subject_to(
             OBS_NORM == self.normalizeState_casadi(
                 OBS,
-                np.array([self.x_min[0], 0]),
-                np.array([self.x_max[0], self.N])
+                np.array([self.y_min[0], 0]),
+                np.array([self.y_max[0], self.N])
             )
         )
 
@@ -258,7 +257,7 @@ class RLMPC(MPC):
 
             # System dynamics and input constraints
             self.opti.subject_to(xs[:, ll+1] == self.F(xs[:, ll], us[:, ll], ds[:, ll], p))
-            self.opti.subject_to(ys[:, ll] == self.g(xs[:, ll+1]))
+            self.opti.subject_to(ys[:, ll] == self.g(xs[:, ll+1], p))
             self.opti.subject_to(self.u_min <= (us[:, ll] <= self.u_max))
 
             # Linear penalty functions
@@ -268,7 +267,7 @@ class RLMPC(MPC):
             self.opti.subject_to(P[2, ll] >= self.lb_pen_w[0,1] * (self.y_min[2] - ys[2, ll]))
             self.opti.subject_to(P[3, ll] >= self.ub_pen_w[0,1] * (ys[2, ll] - self.y_max[2]))
             self.opti.subject_to(P[4, ll] >= self.lb_pen_w[0,2] * (self.y_min[3] - ys[3, ll]))
-            self.opti.subject_to(P[5, ll] >= self.ub_pen_w[0,2] * (ys[3, ll] - self.y_max[3]))
+            self.opti.subject_to(P[5, ll] >= self.ub_pen_w[0,2] * (ys[3, ll] - (self.y_max[3] - 2.0)))
 
             # COST FUNCTION WITH PENALTIES
             delta_dw = xs[0, ll+1] - xs[0, ll]
@@ -348,6 +347,7 @@ class Experiment:
         project_name: str,
         weather_filename: str,
         uncertainty_value: float,
+        p,
         rng,
     ) -> None:
 
@@ -355,12 +355,13 @@ class Experiment:
         self.save_name = save_name
         self.mpc = mpc
         self.uncertainty_value = uncertainty_value
+        self.p = p
         self.rng = rng
 
         self.x = np.zeros((self.mpc.nx, self.mpc.N+1))
         self.y = np.zeros((self.mpc.nx, self.mpc.N+1))
         self.x[:, 0] = np.array(mpc.x_initial)
-        self.y[:, 0] = mpc.g(self.x[:, 0]).toarray().ravel()
+        self.y[:, 0] = mpc.g(self.x[:, 0], self.p).toarray().ravel()
         self.u = np.zeros((self.mpc.nu, self.mpc.N+1))
         self.u[:, 0] = np.array(mpc.u_initial)
         self.d = load_disturbances(
@@ -380,7 +381,7 @@ class Experiment:
         self.penalties = np.zeros((1, mpc.N))
         self.econ_rewards = np.zeros((1, mpc.N))
 
-    def solve_nmpc(self, p) -> None:
+    def solve_nmpc(self) -> None:
         """Solve the nonlinear MPC problem.
 
         Args:
@@ -431,17 +432,18 @@ class Experiment:
                 TERM_POINT_1 = np.array([TERM_POINT_1[0], TERM_POINT_1[7]])
                 TERM_POINT_1 = self.mpc.normalizeState_casadi(
                     TERM_POINT_1,
-                    np.array([self.mpc.x_min[0], 0]),
-                    np.array([self.mpc.x_max[0], self.mpc.N])
+                    np.array([self.mpc.y_min[0], 0]),
+                    np.array([self.mpc.y_max[0], self.mpc.N])
                 )
 
-                TERM_POINT_2 = np.copy(logs['obs'][:,-1]) 
-                TERM_POINT_2 = np.array([TERM_POINT_2[0],TERM_POINT_2[7]])
-                TERM_POINT_2 = self.mpc.normalizeState_casadi(
-                    TERM_POINT_2,
-                    np.array([self.mpc.x_min[0], 0]),
-                    np.array([self.mpc.x_max[0], self.mpc.N])
-                )
+                # CURRENTLY UNUSED
+                # TERM_POINT_2 = np.copy(logs['obs'][:,-1]) 
+                # # # TERM_POINT_2 = np.array([TERM_POINT_2[0],TERM_POINT_2[7]])
+                # TERM_POINT_2 = self.mpc.normalizeState_casadi(
+                    # TERM_POINT_2,
+                    # np.array([self.mpc.y_min[0], 0]),
+                    # np.array([self.mpc.y_max[0], self.mpc.N])
+                # )
             else:
                 # Get the optimal control value
                 end_u = np.copy(us_opt[:, -1])
@@ -461,14 +463,13 @@ class Experiment:
 
                 x_guess_1 = np.roll(xs_opt, shift=-1,axis=1)
                 x_guess_1[:,-1] = np.copy(xx[:,-1])
-                breakpoint()
+
                 TERM_POINT_1 = np.copy(logs_1['obs'][:,-1])
                 TERM_POINT_1 = np.array([TERM_POINT_1[0],TERM_POINT_1[7]])
                 TERM_POINT_1 = self.mpc.normalizeState_casadi(
                     TERM_POINT_1,
-                    np.array([self.mpc.x_min[0], 0]),
-                    np.array([self.mpc.x_max[0],
-                              self.mpc.N])
+                    np.array([self.mpc.y_min[0], 0]),
+                    np.array([self.mpc.y_max[0], self.mpc.N])
                 )
 
                 # Unrolling actor from current state
@@ -478,13 +479,14 @@ class Experiment:
                 x_guess_2 = np.copy(logs_2['x'])
                 u_guess_2 = np.copy(logs_2['u'])
 
-                TERM_POINT_2 = np.copy(logs_2['obs'][:,-1])
-                TERM_POINT_2 = np.array([TERM_POINT_2[0], TERM_POINT_2[7]])
-                TERM_POINT_2 = self.mpc.normalizeState_casadi(
-                    TERM_POINT_2, 
-                    np.array([self.mpc.x_min[0], 0]),
-                    np.array([self.mpc.x_max[0], self.mpc.N])
-                )
+                # CURRENTLY UNUSED
+                # TERM_POINT_2 = np.copy(logs_2['obs'][:,-1])
+                # # # TERM_POINT_2 = np.array([TERM_POINT_2[0], TERM_POINT_2[7]])
+                # TERM_POINT_2 = self.mpc.normalizeState_casadi(
+                    # TERM_POINT_2, 
+                #     np.array([self.mpc.y_min[0], 0]),
+                #     np.array([self.mpc.y_max[0], self.mpc.N])
+                # )
 
             # Getting Optimal Control Value
             coefs_1 = self.mpc.vf_casadi_model_approx.get_params(TERM_POINT_1.toarray().ravel())
@@ -501,11 +503,12 @@ class Experiment:
             )
             self.u[:, ll+1] = us_opt[:, 0].toarray().ravel()
 
-            # Evolve State
-            params = parametric_uncertainty(p, self.uncertainty_value, self.rng)
+            # sample parameters
+            params = parametric_uncertainty(self.p, self.uncertainty_value, self.rng)
 
+            # Evolve state
             self.x[:, ll+1] = self.mpc.F(self.x[:, ll], self.u[:, ll+1], self.d[:, ll], params).toarray().ravel()
-            self.y[:, ll+1] = self.mpc.g(self.x[:, ll+1]).toarray().ravel()
+            self.y[:, ll+1] = self.mpc.g(self.x[:, ll+1], self.p).toarray().ravel()
 
             delta_dw = self.x[0, ll+1] - self.x[0, ll]
             econ_rew = compute_economic_reward(delta_dw, get_parameters(), self.mpc.dt, self.u[:, ll+1])

@@ -56,13 +56,6 @@ class CustomWandbCallback(EvalCallback):
         self.plot = True if run else False
         self.results = results
         self.save_results = True if results else False
-        self.cum_metrics = {
-            "EPI": 0,
-            "revenue": 0.0,
-            "temp_violation": 0.0,
-            "co2_violation": 0.0,
-            "rh_violation": 0.0,
-        }
 
 
         if self.save_results:
@@ -95,11 +88,10 @@ class CustomWandbCallback(EvalCallback):
         # Assuming each info dictionary may contain keys like:
         # "revenue", "heating_cost", "co2_cost", "temperature_violation", 
         # "co2_violation", and "relative_humidity_violation".
-        for info in infos:
-            self.cum_metrics["EPI"] += info["EPI"]
-            self.cum_metrics["temp_violation"] += info["temp_violation"]
-            self.cum_metrics["co2_violation"] += info["co2_violation"]
-            self.cum_metrics["rh_violation"] += info["rh_violation"]
+        self.cum_metrics["EPI"][local_vars["episode_counts"]] += [info["EPI"] for info in infos]
+        self.cum_metrics["temp_violation"][local_vars["episode_counts"]] += [info["temp_violation"] for info in infos]
+        self.cum_metrics["co2_violation"][local_vars["episode_counts"]] += [info["co2_violation"] for info in infos]
+        self.cum_metrics["rh_violation"][local_vars["episode_counts"]] += [info["rh_violation"] for info in infos]
 
     def _on_step(self) -> bool:
 
@@ -124,10 +116,10 @@ class CustomWandbCallback(EvalCallback):
             # self._is_success_buffer = []
             # Reset cumulative metrics
             self.cum_metrics = {
-                "EPI": 0,
-                "temp_violation": 0.0,
-                "co2_violation": 0.0,
-                "rh_violation": 0.0,
+                "EPI": np.zeros(self.n_eval_episodes),
+                "temp_violation": np.zeros(self.n_eval_episodes),
+                "co2_violation": np.zeros(self.n_eval_episodes),
+                "rh_violation": np.zeros(self.n_eval_episodes),
             }
 
             episode_rewards, episode_lengths, _ = evaluate_policy(

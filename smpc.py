@@ -94,7 +94,7 @@ class SMPC:
         # initialize the boundaries for the optimization problem
         self.init_nmpc()
 
-        self.F, self.g = define_model(self.dt)
+        self.F, self.g = define_model(self.dt, self.x_min, self.x_max)
 
     def init_nmpc(self):
         """Initialize the nonlinear SMPC problem.
@@ -118,8 +118,8 @@ class SMPC:
             ],
         )
 
-        self.y_min = np.array([self.constraints["W_min"], self.constraints["co2_min"], self.constraints["temp_min"], self.constraints["rh_min"]])
-        self.y_max = np.array([self.constraints["W_max"], self.constraints["co2_max"], self.constraints["temp_max"], self.constraints["rh_max"]])
+        self.y_min = np.array([self.constraints["W_min"]*1e3, self.constraints["co2_min"], self.constraints["temp_min"], self.constraints["rh_min"]])
+        self.y_max = np.array([self.constraints["W_max"]*1e3, self.constraints["co2_max"], self.constraints["temp_max"], self.constraints["rh_max"]])
 
         # control input constraints vector
         self.u_min = np.array([self.constraints["co2_supply_min"], self.constraints["vent_min"], self.constraints["heat_min"]])
@@ -143,9 +143,6 @@ class SMPC:
 
         # Decision Variables (Control inputs, slack variables, states, outputs)
         self.us = self.opti.variable(self.nu, self.Np)  # Control inputs (nu x Np)
-        # self.P = self.opti.variable(num_penalties, self.Np)
-        # self.xs = self.opti.variable(self.nx, self.Np+1)
-        # self.ys = self.opti.variable(self.ny, self.Np)
         self.xs_list = [self.opti.variable(self.nx, self.Np+1) for _ in range(self.Ns)]
         self.ys_list = [self.opti.variable(self.ny, self.Np) for _ in range(self.Ns)]
         self.Ps     = [self.opti.variable(num_penalties, self.Np) for _ in range(self.Ns)]
@@ -160,28 +157,30 @@ class SMPC:
         self.opti.set_value(self.init_u, self.u_initial)
 
         self.opti.set_value(self.ds, ca.DM.zeros(self.ds.shape))
-
+        # Example: Increasing penalties for near-term violations
+        horizon_weights = [2*np.exp(-0.2*k) for k in range(self.Np)]
+        # self.opti.subject_to(P[0, ll] >= self.lb_pen_w[0,0]  * (self.y_min[1] - ys[1, ll]))
         self.Js = 0
         for i in range(self.Ns):
             xs = self.xs_list[i]
             ys = self.ys_list[i]
             P = self.Ps[i]
-            
+
             self.opti.subject_to(xs[:,0] == self.x0)     # Initial Condition Constraint
 
             for ll in range(self.Np):
                 params = parametric_uncertainty(p, self.uncertainty_value, self.rng)
                 self.opti.subject_to(xs[:, ll+1] == self.F(xs[:, ll], self.us[:, ll], self.ds[:, ll], params))
-                self.opti.subject_to(ys[:, ll] == self.g(xs[:, ll+1]))
-                self.opti.subject_to(self.u_min <= (self.us[:,ll] <= self.u_max))                     # Input   Contraints
+                self.opti.subject_to(ys[:, ll] == self.g(xs[:, ll+1], p))
+                self.opti.subject_to(self.u_min <= (self.us[:,ll] <= self.u_max))                   # Input   Contraints
 
                 self.opti.subject_to(P[:, ll] >= 0)
-                self.opti.subject_to(P[0, ll] >= self.lb_pen_w[0,0] * (self.y_min[1] - ys[1, ll]))
-                self.opti.subject_to(P[1, ll] >= self.ub_pen_w[0,0] * (ys[1, ll] - self.y_max[1]))
-                self.opti.subject_to(P[2, ll] >= self.lb_pen_w[0,1] * (self.y_min[2] - ys[2, ll]))
-                self.opti.subject_to(P[3, ll] >= self.ub_pen_w[0,1] * (ys[2, ll] - self.y_max[2]))
-                self.opti.subject_to(P[4, ll] >= self.lb_pen_w[0,2] * (self.y_min[3] - ys[3, ll]))
-                self.opti.subject_to(P[5, ll] >= self.ub_pen_w[0,2] * (ys[3, ll] - self.y_max[3]))
+                self.opti.subject_to(P[0, ll] >= self.lb_pen_w[0,0] * horizon_weights[ll] *  (self.y_min[1] - ys[1, ll]))
+                self.opti.subject_to(P[1, ll] >= self.ub_pen_w[0,0] * horizon_weights[ll] * (ys[1, ll] - self.y_max[1]))
+                self.opti.subject_to(P[2, ll] >= self.lb_pen_w[0,1] * horizon_weights[ll] * (self.y_min[2] - ys[2, ll]))
+                self.opti.subject_to(P[3, ll] >= self.ub_pen_w[0,1] * horizon_weights[ll] *  (ys[2, ll] - self.y_max[2]))
+                self.opti.subject_to(P[4, ll] >= self.lb_pen_w[0,2] * horizon_weights[ll] *  (self.y_min[3] - ys[3, ll]))
+                self.opti.subject_to(P[5, ll] >= self.ub_pen_w[0,2] * horizon_weights[ll] *  (ys[3, ll] - (self.y_max[3]-2.0)))
 
                 # COST FUNCTION WITH PENALTIES
                 delta_dw = xs[0, ll+1] - xs[0, ll]
@@ -203,7 +202,7 @@ class SMPC:
             [self.x0, self.ds, self.init_u],
             [self.us, ca.vertcat(*self.xs_list), ca.vertcat(*self.ys_list), self.Js],
             ['x0','ds','u0'],
-            ['u_opt', 'x_opt_all', 'y_opt_all', 'J_opt']
+            ['u_opt', 'x_opt_all', 'y_opt_all', 'J_opt'],
         )
 
     def constraint_violation(self, y: np.ndarray):
@@ -260,19 +259,21 @@ class Experiment:
         save_name: str,
         project_name: str,
         weather_filename: str,
-        uncertainty_scale: float,
+        uncertainty_value: float,
+        p,
         rng,
     ) -> None:
 
         self.project_name = project_name
         self.save_name = save_name
         self.mpc = mpc
-        self.uncertainty_scale = uncertainty_scale
+        self.uncertainty_value = uncertainty_value
+        self.p = p
         self.rng = rng
         self.x = np.zeros((self.mpc.nx, self.mpc.N+1))
         self.y = np.zeros((self.mpc.nx, self.mpc.N+1))
         self.x[:, 0] = np.array(mpc.x_initial)
-        self.y[:, 0] = mpc.g(self.x[:, 0]).toarray().ravel()
+        self.y[:, 0] = mpc.g(self.x[:, 0], self.p).toarray().ravel()
         self.u = np.zeros((self.mpc.nu, self.mpc.N+1))
         self.d = load_disturbances(
             weather_filename,
@@ -291,7 +292,7 @@ class Experiment:
         self.econ_rewards = np.zeros((1, mpc.N))
         self.rewards = np.zeros((1, mpc.N))
 
-    def solve_nmpc(self, p) -> None:
+    def solve_nmpc(self) -> None:
         """Solve the nonlinear MPC problem.
 
         Args:
@@ -311,10 +312,10 @@ class Experiment:
             us_opt, xs_opt, ys_opt, J_opt = self.mpc.SMPC_func(self.x[:, ll], self.d[:, ll:ll+self.mpc.Np], self.u[:, ll])
             self.u[:, ll+1] = us_opt[:, 0].toarray().ravel()
 
-            params = parametric_uncertainty(p, self.uncertainty_scale, self.rng)
+            params = parametric_uncertainty(self.p, self.uncertainty_value, self.rng)
 
             self.x[:, ll+1] = self.mpc.F(self.x[:, ll], self.u[:, ll+1], self.d[:, ll], params).toarray().ravel()
-            self.y[:, ll+1] = self.mpc.g(self.x[:, ll+1]).toarray().ravel()
+            self.y[:, ll+1] = self.mpc.g(self.x[:, ll+1], self.p).toarray().ravel()
 
             delta_dw = self.x[0, ll+1] - self.x[0, ll]
             econ_rew = compute_economic_reward(delta_dw, get_parameters(), self.mpc.dt, self.u[:, ll+1])
@@ -373,10 +374,7 @@ class Experiment:
         # Stack all arrays vertically
         return np.vstack(arrays).T
 
-
-    def save_results(self, save_path):
-        """
-        """
+    def retrieve_results(self, run=0):
         data = {}
         # transform the weather variables to the right units
         self.d[1, :] = co2dens2ppm(self.d[2, :], self.d[1, :])
@@ -390,15 +388,22 @@ class Experiment:
             data[f"u_{i}"] = self.u[i, 1:]
         for i in range(self.d.shape[0]):
             data[f"d_{i}"] = self.d[i, :self.mpc.N]
+        
         # for i in range(self.uopt.shape[0]):
         #     for j in range(self.uopt.shape[1]):
         #         data[f"uopt_{i}_{j}"] = self.uopt[i, j, :-1]
         data["J"] = self.J.flatten()
-        data["econ_rewards"] = self.rewards.flatten()
+        data["econ_rewards"] = self.econ_rewards.flatten()
         data["penalties"] = self.penalties.flatten()
         data["rewards"] = self.rewards.flatten()
 
         df = pd.DataFrame(data, columns=data.keys())
+        df['run'] = run
+        return df
+
+    def save_results(self, df, save_path, run=0):
+        """
+        """
         df.to_csv(f"{save_path}/{self.save_name}.csv", index=False)
 
 if __name__ == "__main__":
@@ -406,23 +411,23 @@ if __name__ == "__main__":
     parser.add_argument("--project", type=str)
     parser.add_argument("--env_id", type=str, default="LettuceGreenhouse")
     parser.add_argument("--save_name", type=str)
+    parser.add_argument("--uncertainty_value", type=float, required=True)
     parser.add_argument("--weather_filename", default="outdoorWeatherWurGlas2014.csv", type=str)
     args = parser.parse_args()
 
     save_path = f"data/{args.project}/stochastic/smpc"
     os.makedirs(save_path, exist_ok=True)
-    uncertainty_scale = 0.05
 
     env_params = load_env_params(args.env_id)
     mpc_params = load_mpc_params(args.env_id)
-    mpc_params["uncertainty_value"] = uncertainty_scale
+    mpc_params["uncertainty_value"] = args.uncertainty_value
 
     H = [1, 2, 3, 4, 5, 6]
-    mpc_params["Ns"] = 5
-
+    mpc_params["Ns"] = 10
     for h in H:
-        save_name = f"{args.save_name}-{h}H-{mpc_params['Ns']}Ns-{uncertainty_scale}"
-        mpc_params["rng"] = np.random.default_rng(42)
+        rng = np.random.default_rng(666)
+        save_name = f"{args.save_name}-{h}H-{mpc_params['Ns']}Ns-{args.uncertainty_value}"
+        mpc_params["rng"] = rng
         mpc_params["Np"] = int(h * 3600 / env_params["dt"])
 
         # p = DefineParameters()
@@ -430,7 +435,8 @@ if __name__ == "__main__":
         mpc = SMPC(**env_params, **mpc_params)
         mpc.define_nlp(p)
 
-        rng = np.random.default_rng(666)
-        exp = Experiment(mpc, save_name, args.project, args.weather_filename, uncertainty_scale, rng)
-        exp.solve_nmpc(p)
-        exp.save_results(save_path)
+        exp = Experiment(mpc, save_name, args.project, args.weather_filename, args.uncertainty_value, p, rng)
+        exp.solve_nmpc()
+        df = exp.retrieve_results()
+        exp.save_results(df, save_path)
+        

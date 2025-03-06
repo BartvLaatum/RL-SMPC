@@ -31,7 +31,7 @@ if __name__ == "__main__":
 
 
     env_params = load_env_params(args.env_id)
-    env_params["uncertainty_scale"] = args.uncertainty_value
+    env_params["uncertainty_value"] = args.uncertainty_value
     hyperparameters, rl_env_params = load_rl_params(args.env_id, args.algorithm)
     env_params.update(rl_env_params)
     L = env_params["n_days"]*86400
@@ -90,20 +90,6 @@ if __name__ == "__main__":
     my_vf.values  = copy.deepcopy(my_value_function.values)
     my_vf.trajectories = copy.deepcopy(my_value_function.trajectories)
     my_vf.train(epochs=200)
-
-    # Save the value function
-    # Import arguments
-    # if len(sys.argv) > 1:
-    #     T = int(sys.argv[1])
-    #     job_desc = "rlmpc_" + str(T) + "hr"
-    #     job_id = sys.argv[2]
-    # else:
-    #     T = 1
-    #     job_desc = "None"
-    #     job_id = "0"
-    #     print("No arguments provided, using default values")
-    # print(f"Time horizon: {T} hours")
-    # print(f"Job description: {job_desc}")
 
     # Create folders for export
     # current_day_time = datetime.datetime.now().strftime("%Y%m%d_%H%M")

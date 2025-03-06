@@ -55,7 +55,7 @@ def evaluate(model, env):
     states = None
 
     x[:, 0] = env.get_attr("x0")[0]
-    y[:, 0] = env.env_method("get_y")[0]
+    y[:, 0] = env.get_attr("y")[0]
     u[:, 0] = env.get_attr("u0")[0]
     d[:, 0] = env.env_method("get_d")[0]
 
@@ -73,7 +73,7 @@ def evaluate(model, env):
         if dones.any():
             break
         x[:, timestep+1] = env.env_method("get_state")[0]
-        y[:, timestep+1] = env.env_method("get_y")[0]
+        y[:, timestep+1] = env.get_attr("y")[0]
         u[:, timestep+1] = infos[0]["controls"]
         d[:, timestep+1] = env.env_method("get_d")[0]
     return np.concatenate([time, x[:,:N], y[:,:N], u[:,:N], d[:,:N], episode_epi, penalties, episode_rewards]).T
