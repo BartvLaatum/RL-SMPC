@@ -55,7 +55,7 @@ def evaluate(model, env):
     states = None
 
     x[:, 0] = env.get_attr("x0")[0]
-    y[:, 0] = env.env_method("get_y")[0]
+    y[:, 0] = env.get_attr("y")[0]
     u[:, 0] = env.get_attr("u0")[0]
     d[:, 0] = env.env_method("get_d")[0]
 
@@ -73,7 +73,7 @@ def evaluate(model, env):
         if dones.any():
             break
         x[:, timestep+1] = env.env_method("get_state")[0]
-        y[:, timestep+1] = env.env_method("get_y")[0]
+        y[:, timestep+1] = env.get_attr("y")[0]
         u[:, timestep+1] = infos[0]["controls"]
         d[:, timestep+1] = env.env_method("get_d")[0]
     return np.concatenate([time, x[:,:N], y[:,:N], u[:,:N], d[:,:N], episode_epi, penalties, episode_rewards]).T
@@ -85,16 +85,16 @@ if __name__ == "__main__":
     parser.add_argument("--model_name", type=str, default="cosmic-music-45", help="Name of the trained RL model")
     parser.add_argument("--algorithm", type=str, default="ppo", help="Name of the algorithm (ppo or sac)")
     parser.add_argument("--mode", type=str, choices=['deterministic', 'stochastic'], required=True)
-    parser.add_argument("--uncertainty_scale", type=float, help="Uncertainty scale value")
+    parser.add_argument("--uncertainty_value", type=float, help="Uncertainty scale value")
     args = parser.parse_args()
 
     assert args.mode in ['deterministic', 'stochastic'], "Mode must be either 'deterministic' or 'stochastic'"
     if args.mode == 'stochastic':
-        assert args.uncertainty_scale is not None, "Uncertainty scale must be provided for stochastic mode"
-        assert (0 <= args.uncertainty_scale < 1), "Uncertainty scale values must be between 0 and 1"
+        assert args.uncertainty_value is not None, "Uncertainty scale must be provided for stochastic mode"
+        assert (0 <= args.uncertainty_value < 1), "Uncertainty scale values must be between 0 and 1"
         n_sims = 30
     else:
-        args.uncertainty_scale = 0
+        args.uncertainty_value = 0
         n_sims = 1
 
     load_path = f"train_data/{args.project}/{args.algorithm}/{args.mode}/"
@@ -104,7 +104,7 @@ if __name__ == "__main__":
 
     env_params = load_env_params(args.env_id)
     hyperparameters, rl_env_params = load_rl_params(args.env_id, args.algorithm)
-    env_params["uncertainty_scale"] = args.uncertainty_scale
+    env_params["uncertainty_value"] = args.uncertainty_value
     env_params.update(rl_env_params)
     eval_env = load_env(args.env_id, args.model_name, env_params, load_path)
 

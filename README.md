@@ -36,14 +36,14 @@ RL-MPC-lettuce/
 We recommend using Python 3.10+ with Anaconda for this project.
 
 1. Clone the repository:
-   ```shell
-   git clone git@github.com:BartvLaatum/RL-MPC-lettuce.git
-   ```
+```shell
+git clone git@github.com:BartvLaatum/RL-MPC-lettuce.git
+```
 
 2. Install the required Python libraries:
-   ```shell
-   pip install -r requirements.txt
-   ```
+```shell
+pip install -r requirements.txt
+```
 
 ## Usage
 
@@ -53,10 +53,10 @@ Run a deterministic MPC instance and save the closed-loop trajectory results:
 
 ```shell
 python mpc.py 
-    --project PROJECT_NAME
-    --env_id ENV_ID
-    --save_name SAVE_NAME
-    --weather_filename WEATHER_FILENAME
+--project PROJECT_NAME
+--env_id ENV_ID
+--save_name SAVE_NAME
+--weather_filename WEATHER_FILENAME
 ```
 
 ### 2. Reinforcement Learning (RL)
@@ -67,30 +67,30 @@ Start training and logging the RL agent. Training logs are saved to Weights and 
 - `train_data/{project}/{algorithm}/{stochastic}/models/{model_name}/`
 
 ```shell
-python RL/rl.py
-    --project PROJECT_NAME
-    --env_id ENV_ID
-    --algorithm RL-ALGORITHM
-    --group GROUP_NAME
-    --n_eval_episodes NUMBER_OF_EPISODES_TO_EVALUATE
-    --n_evals NUMBER_EVALUATION_DURING_TRAINING
-    --env_seed SEED_FOR_ENVIRONMENT
-    --model_seed SEED_FOR_MODEL
-    --stochastic STOCHASTIC_OR_DETERMINISTIC
-    --device DEVICE_FOR_NN
-    --save_model SAVE_MODEL
-    --save_env SAVE_ENV
+python experiments/train_rl.py
+--project PROJECT_NAME
+--env_id ENV_ID
+--algorithm RL-ALGORITHM
+--group GROUP_NAME
+--n_eval_episodes NUMBER_OF_EPISODES_TO_EVALUATE
+--n_evals NUMBER_EVALUATION_DURING_TRAINING
+--env_seed SEED_FOR_ENVIRONMENT
+--model_seed SEED_FOR_MODEL
+--stochastic STOCHASTIC_OR_DETERMINISTIC
+--device DEVICE_FOR_NN
+--save_model SAVE_MODEL
+--save_env SAVE_ENV
 ```
 
 Evaluate the best-trained agent:
 
 ```shell
 python RL/evaluate_rl.py
-    --project PROJECT_NAME
-    --env_id ENV_ID
-    --model_name MODEL_NAME
-    --algorithm RL-ALGORITHM
-    --mode STOCHASTIC_OR_DETERMINISTIC
+--project PROJECT_NAME
+--env_id ENV_ID
+--model_name MODEL_NAME
+--algorithm RL-ALGORITHM
+--mode STOCHASTIC_OR_DETERMINISTIC
 ```
 
 ### 3. Train value function for temporal return learning.
@@ -101,11 +101,11 @@ python RL/evaluate_rl.py
 
 ```shell
 python RL/vf_TR_learning.py 
-    --project PROJECT_NAME
-    --env_id ENV_ID
-    --algorithm RL_ALGORITHM
-    --model_name MODEL_NAME
-    --stochastic STOCHASTIC_OR_DETERMINISTIC
+--project PROJECT_NAME
+--env_id ENV_ID
+--algorithm RL_ALGORITHM
+--model_name MODEL_NAME
+--stochastic STOCHASTIC_OR_DETERMINISTIC
 ```
 
 ### 4. RL-MPC
@@ -114,14 +114,14 @@ Run a deterministic RL-MPC instance and save the closed-loop trajectory results:
 
 ```shell
 python rl_mpc.py 
-    --project PROJECT_NAME
-    --env_id ENV_ID
-    --save_name SAVE_NAME
-    --weather_filename WEATHER_FILENAME
-    --algorithm RL-ALGORITHM
-    --model_name MODEL_NAME
-    --use_trained_vf USE_TRAINED_VF
-    --stochastic STOCHASTIC_OR_DETERMINISTIC
+--project PROJECT_NAME
+--env_id ENV_ID
+--save_name SAVE_NAME
+--weather_filename WEATHER_FILENAME
+--algorithm RL-ALGORITHM
+--model_name MODEL_NAME
+--use_trained_vf USE_TRAINED_VF
+--stochastic STOCHASTIC_OR_DETERMINISTIC
 ```
 
 ## Examples
@@ -132,10 +132,10 @@ python rl_mpc.py
 - Using model `resolute-darling-85`
 ```shell
 python RL/vf_TR_learning.py 
-    --project matching-thesis
-    --env_id LettuceGreenhouse
-    --algorithm sac
-    --model_name resolute-darling-85
+--project matching-thesis
+--env_id LettuceGreenhouse
+--algorithm sac
+--model_name resolute-darling-85
 ```
 
 ### Running RL-MPC for varying prediction horizon ranging from 1H-6H
@@ -144,13 +144,13 @@ python RL/vf_TR_learning.py
 - Using model: `resolute-darling-85`
 ```shell
 python experiments/horizon_rlmpc.py
-    --project matching-thesis
-    --env_id LettuceGreenhouse
-    --save_name rlmpc
-    --algorithm sac
-    --model_name resolute-darling-85
-    --mode deterministic
-    --use_trained_vf
+--project matching-thesis
+--env_id LettuceGreenhouse
+--save_name rlmpc
+--algorithm sac
+--model_name resolute-darling-85
+--mode deterministic
+--use_trained_vf
 ```
 
 
@@ -159,12 +159,22 @@ python experiments/horizon_rlmpc.py
 - For the models: `resolute-darling-85` and `salim`
 
 ```shell
-python visualisations/performance_plot.py 
-    --project matching-thesis 
-    --model_names resolute-darling-85 salim 
-    --mode deterministic
- ```
+python visualisations/performance_plots.py 
+--project matching-thesis 
+--model_names resolute-darling-85 salim 
+--mode deterministic
+```
 
+- SMPC and RL-SMPC
+```shell
+python visualisations/performance_plots.py 
+--project SMPC 
+--model_names logical-disco-90 
+--Ns 5 
+--mode stochastic 
+--uncertainty_value 0.05 
+--figure_name rlsmpc
+```
 ## Results
 
 ### Deterministic case

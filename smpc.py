@@ -1,7 +1,7 @@
 import os
 import argparse
 from typing import Any, Dict, List
-
+from tqdm import tqdm
 import numpy as np
 import pandas as pd
 import casadi as ca
@@ -19,11 +19,11 @@ from common.utils import (
 )
 
 
-class MPC:
+class SMPC:
     """
-    A class to represent a Model Predictive Controller (MPC) for nonlinear systems.
+    A class to represent a Model Predictive Controller (SMPC) for nonlinear systems.
 
-    The MPC class utilizes CasADi's Opti stack to define and solve an optimization problem
+    The SMPC class utilizes CasADi's Opti stack to define and solve an optimization problem
     that minimizes a cost function while satisfying system dynamics and constraints over a 
     specified prediction horizon.
 
@@ -44,7 +44,7 @@ class MPC:
         define_nlp(p: Dict[str, Any]) -> None:
             Defines the nonlinear programming (NLP) problem, including decision variables,
             parameters, constraints, and the cost function.
-            Defines a callable function `MPC_func` that can be used to solve the optimization problem.
+            Defines a callable function `SMPC_func` that can be used to solve the optimization problem.
 
     """
     def __init__(
@@ -65,6 +65,7 @@ class MPC:
             ub_pen_w: List[float],
             constraints: Dict[str, Any],
             nlp_opts: Dict[str, Any],
+            rng,
             ) -> None:
         self.x_initial = x0
         self.u_initial = u0
@@ -88,6 +89,7 @@ class MPC:
         self.ubg = []
         self.constraints = constraints
         self.nlp_opts = nlp_opts
+        self.rng = rng
 
         # initialize the boundaries for the optimization problem
         self.init_nmpc()
@@ -95,7 +97,7 @@ class MPC:
         self.F, self.g = define_model(self.dt, self.x_min, self.x_max)
 
     def init_nmpc(self):
-        """Initialize the nonlinear MPC problem.
+        """Initialize the nonlinear SMPC problem.
         Initialise the constraints, bounds, and the optimization problem.
         """
         self.x_min = np.array(
@@ -116,22 +118,8 @@ class MPC:
             ],
         )
 
-        self.y_min = np.array(
-            [
-                self.constraints["W_min"]*1e3,
-                self.constraints["co2_min"],
-                self.constraints["temp_min"],
-                self.constraints["rh_min"]
-            ]
-        )
-        self.y_max = np.array(
-            [
-                self.constraints["W_max"]*1e3,
-                self.constraints["co2_max"],
-                self.constraints["temp_max"],
-                self.constraints["rh_max"]
-            ]
-        )
+        self.y_min = np.array([self.constraints["W_min"]*1e3, self.constraints["co2_min"], self.constraints["temp_min"], self.constraints["rh_min"]])
+        self.y_max = np.array([self.constraints["W_max"]*1e3, self.constraints["co2_max"], self.constraints["temp_max"], self.constraints["rh_max"]])
 
         # control input constraints vector
         self.u_min = np.array([self.constraints["co2_supply_min"], self.constraints["vent_min"], self.constraints["heat_min"]])
@@ -144,7 +132,7 @@ class MPC:
 
     def define_nlp(self, p: Dict[str, Any]) -> None:
         """
-        Define the optimization problem for the nonlinear MPC using CasADi's Opti stack.
+        Define the optimization problem for the nonlinear SMPC using CasADi's Opti stack.
         Including the cost function, constraints, and bounds.
         """
         # Create an Opti instance
@@ -155,9 +143,10 @@ class MPC:
 
         # Decision Variables (Control inputs, slack variables, states, outputs)
         self.us = self.opti.variable(self.nu, self.Np)  # Control inputs (nu x Np)
-        self.P = self.opti.variable(num_penalties, self.Np)
-        self.xs = self.opti.variable(self.nx, self.Np+1)
-        self.ys = self.opti.variable(self.ny, self.Np)
+        self.xs_list = [self.opti.variable(self.nx, self.Np+1) for _ in range(self.Ns)]
+        self.ys_list = [self.opti.variable(self.ny, self.Np) for _ in range(self.Ns)]
+        self.Ps     = [self.opti.variable(num_penalties, self.Np) for _ in range(self.Ns)]
+
 
         # Parameters
         self.x0 = self.opti.parameter(self.nx, 1)  # Initial state
@@ -165,47 +154,56 @@ class MPC:
         self.init_u = self.opti.parameter(self.nu, 1)  # Initial control input
 
         self.opti.set_value(self.x0, self.x_initial)
-        self.opti.set_value(self.ds, ca.DM.zeros(self.ds.shape))
         self.opti.set_value(self.init_u, self.u_initial)
 
+        self.opti.set_value(self.ds, ca.DM.zeros(self.ds.shape))
+        # Example: Increasing penalties for near-term violations
+        horizon_weights = [2*np.exp(-0.2*k) for k in range(self.Np)]
+        # self.opti.subject_to(P[0, ll] >= self.lb_pen_w[0,0]  * (self.y_min[1] - ys[1, ll]))
         self.Js = 0
+        for i in range(self.Ns):
+            xs = self.xs_list[i]
+            ys = self.ys_list[i]
+            P = self.Ps[i]
 
-        for ll in range(self.Np):
-            self.opti.subject_to(self.xs[:, ll+1] == self.F(self.xs[:, ll], self.us[:, ll], self.ds[:, ll], p))
-            self.opti.subject_to(self.ys[:, ll] == self.g(self.xs[:, ll+1], p))
-            self.opti.subject_to(self.u_min <= (self.us[:,ll] <= self.u_max))                     # Input   Contraints
+            self.opti.subject_to(xs[:,0] == self.x0)     # Initial Condition Constraint
 
-            # self.set_slack_variables(ll, p)
-            self.opti.subject_to(self.P[:, ll] >= 0)
-            self.opti.subject_to(self.P[0, ll] >= self.lb_pen_w[0,0] * (self.y_min[1] - self.ys[1, ll]))
-            self.opti.subject_to(self.P[1, ll] >= self.ub_pen_w[0,0] * (self.ys[1, ll] - self.y_max[1]))
-            self.opti.subject_to(self.P[2, ll] >= self.lb_pen_w[0,1] * (self.y_min[2] - self.ys[2, ll]))
-            self.opti.subject_to(self.P[3, ll] >= self.ub_pen_w[0,1] * (self.ys[2, ll] - self.y_max[2]))
-            self.opti.subject_to(self.P[4, ll] >= self.lb_pen_w[0,2] * (self.y_min[3] - self.ys[3, ll]))
-            self.opti.subject_to(self.P[5, ll] >= self.ub_pen_w[0,2] * (self.ys[3, ll] - (self.y_max[3] - 2.0)))
+            for ll in range(self.Np):
+                params = parametric_uncertainty(p, self.uncertainty_value, self.rng)
+                self.opti.subject_to(xs[:, ll+1] == self.F(xs[:, ll], self.us[:, ll], self.ds[:, ll], params))
+                self.opti.subject_to(ys[:, ll] == self.g(xs[:, ll+1], p))
+                self.opti.subject_to(self.u_min <= (self.us[:,ll] <= self.u_max))                   # Input   Contraints
 
-            # COST FUNCTION WITH PENALTIES
-            delta_dw = self.xs[0, ll+1] - self.xs[0, ll]
-            self.Js -= compute_economic_reward(delta_dw, p, self.dt, self.us[:,ll])
-            self.Js += (self.P[0, ll]+ self.P[1, ll]+self.P[2, ll]+self.P[3, ll]+self.P[4, ll]+self.P[5, ll])
+                self.opti.subject_to(P[:, ll] >= 0)
+                self.opti.subject_to(P[0, ll] >= self.lb_pen_w[0,0] * horizon_weights[ll] *  (self.y_min[1] - ys[1, ll]))
+                self.opti.subject_to(P[1, ll] >= self.ub_pen_w[0,0] * horizon_weights[ll] * (ys[1, ll] - self.y_max[1]))
+                self.opti.subject_to(P[2, ll] >= self.lb_pen_w[0,1] * horizon_weights[ll] * (self.y_min[2] - ys[2, ll]))
+                self.opti.subject_to(P[3, ll] >= self.ub_pen_w[0,1] * horizon_weights[ll] *  (ys[2, ll] - self.y_max[2]))
+                self.opti.subject_to(P[4, ll] >= self.lb_pen_w[0,2] * horizon_weights[ll] *  (self.y_min[3] - ys[3, ll]))
+                self.opti.subject_to(P[5, ll] >= self.ub_pen_w[0,2] * horizon_weights[ll] *  (ys[3, ll] - (self.y_max[3]-2.0)))
 
-            if ll < self.Np-1:
-                self.opti.subject_to(-self.du_max<=(self.us[:,ll+1] - self.us[:,ll]<=self.du_max))     # Change in input Constraint
+                # COST FUNCTION WITH PENALTIES
+                delta_dw = xs[0, ll+1] - xs[0, ll]
+                self.Js -= compute_economic_reward(delta_dw, p, self.dt, self.us[:,ll])
+                self.Js += (P[0, ll]+ P[1, ll]+P[2, ll]+P[3, ll]+P[4, ll]+P[5, ll])
 
-        # Constraints on intial state and input
+                if ll < self.Np-1:
+                    self.opti.subject_to(-self.du_max<=(self.us[:,ll+1] - self.us[:,ll]<=self.du_max))     # Change in input Constraint
+
+        self.Js = self.Js / self.Ns
+
+        # Intial constraint on input
         self.opti.subject_to(-self.du_max <= (self.us[:,0] - self.init_u <= self.du_max))   # Initial change in input Constraint
-        self.opti.subject_to(self.xs[:,0] == self.x0)     # Initial Condition Constraint
         self.opti.minimize(self.Js)
 
         self.opti.solver('ipopt', self.nlp_opts)
-        self.MPC_func = self.opti.to_function(
-            'MPC_func',
+        self.SMPC_func = self.opti.to_function(
+            'SMPC_func',
             [self.x0, self.ds, self.init_u],
-            [self.us, self.xs, self.ys, self.Js],
+            [self.us, ca.vertcat(*self.xs_list), ca.vertcat(*self.ys_list), self.Js],
             ['x0','ds','u0'],
-            ['u_opt', 'x_opt', 'y_opt', 'J_opt']
+            ['u_opt', 'x_opt_all', 'y_opt_all', 'J_opt'],
         )
-
 
     def constraint_violation(self, y: np.ndarray):
         """
@@ -222,18 +220,17 @@ class MPC:
 
     def compute_penalties(self, y):
         lowerbound, upperbound = self.constraint_violation(y)
-        breakpoint()
         penalties = np.dot(self.lb_pen_w, lowerbound) + np.dot(self.ub_pen_w, upperbound)
         return np.sum(penalties)
 
 
 class Experiment:
-    """Experiment manager to test the closed loop performance of MPC.
+    """Experiment manager to test the closed loop performance of SMPC.
 
     Attributes:
         project_name (str): The name of the project.
         save_name (str): The name under which results will be saved.
-        mpc (MPC): The MPC controller instance.
+        mpc (SMPC): The SMPC controller instance.
         x (np.ndarray): State trajectory.
         y (np.ndarray): Output trajectory.
         u (np.ndarray): Control input trajectory.
@@ -248,17 +245,17 @@ class Experiment:
 
     Methods:
         solve_nmpc(p: Dict[str, Any]) -> None:
-            Solve the nonlinear MPC problem.
+            Solve the nonlinear SMPC problem.
 
         update_results(us_opt: np.ndarray, Js_opt: float, sol: Dict[str, Any], step: int) -> None:
-            Update the results after solving the MPC problem for a step.
+            Update the results after solving the SMPC problem for a step.
 
         save_results() -> None:
             Save the results of the experiment to a CSV file.
     """
     def __init__(
         self,
-        mpc: MPC,
+        mpc: SMPC,
         save_name: str,
         project_name: str,
         weather_filename: str,
@@ -310,9 +307,9 @@ class Experiment:
             np.ndarray: the gradient of the cost function
             np.ndarray: the hessian of the cost function
         """
-        for ll in range(self.mpc.N):
+        for ll in tqdm(range(self.mpc.N)):
 
-            us_opt, xs_opt, ys_opt, J_opt = self.mpc.MPC_func(self.x[:, ll], self.d[:, ll:ll+self.mpc.Np], self.u[:, ll])
+            us_opt, xs_opt, ys_opt, J_opt = self.mpc.SMPC_func(self.x[:, ll], self.d[:, ll:ll+self.mpc.Np], self.u[:, ll])
             self.u[:, ll+1] = us_opt[:, 0].toarray().ravel()
 
             params = parametric_uncertainty(self.p, self.uncertainty_value, self.rng)
@@ -377,10 +374,7 @@ class Experiment:
         # Stack all arrays vertically
         return np.vstack(arrays).T
 
-
-    def save_results(self, save_path):
-        """
-        """
+    def retrieve_results(self, run=0):
         data = {}
         # transform the weather variables to the right units
         self.d[1, :] = co2dens2ppm(self.d[2, :], self.d[1, :])
@@ -394,6 +388,7 @@ class Experiment:
             data[f"u_{i}"] = self.u[i, 1:]
         for i in range(self.d.shape[0]):
             data[f"d_{i}"] = self.d[i, :self.mpc.N]
+        
         # for i in range(self.uopt.shape[0]):
         #     for j in range(self.uopt.shape[1]):
         #         data[f"uopt_{i}_{j}"] = self.uopt[i, j, :-1]
@@ -403,6 +398,12 @@ class Experiment:
         data["rewards"] = self.rewards.flatten()
 
         df = pd.DataFrame(data, columns=data.keys())
+        df['run'] = run
+        return df
+
+    def save_results(self, df, save_path, run=0):
+        """
+        """
         df.to_csv(f"{save_path}/{self.save_name}.csv", index=False)
 
 if __name__ == "__main__":
@@ -410,22 +411,32 @@ if __name__ == "__main__":
     parser.add_argument("--project", type=str)
     parser.add_argument("--env_id", type=str, default="LettuceGreenhouse")
     parser.add_argument("--save_name", type=str)
+    parser.add_argument("--uncertainty_value", type=float, required=True)
     parser.add_argument("--weather_filename", default="outdoorWeatherWurGlas2014.csv", type=str)
     args = parser.parse_args()
 
-    save_path = f"data/{args.project}/mpc"
+    save_path = f"data/{args.project}/stochastic/smpc"
     os.makedirs(save_path, exist_ok=True)
 
     env_params = load_env_params(args.env_id)
     mpc_params = load_mpc_params(args.env_id)
+    mpc_params["uncertainty_value"] = args.uncertainty_value
 
-    # p = DefineParameters()
-    p = get_parameters()
-    mpc = MPC(**env_params, **mpc_params)
-    mpc.define_nlp(p)
-    uncertainty_value = 0.1
-    rng = np.random.default_rng(42)
-    exp = Experiment(mpc, args.save_name, args.project, args.weather_filename, uncertainty_value, p, rng)
-    exp.solve_nmpc()
+    H = [1, 2, 3, 4, 5, 6]
+    mpc_params["Ns"] = 10
+    for h in H:
+        rng = np.random.default_rng(666)
+        save_name = f"{args.save_name}-{h}H-{mpc_params['Ns']}Ns-{args.uncertainty_value}"
+        mpc_params["rng"] = rng
+        mpc_params["Np"] = int(h * 3600 / env_params["dt"])
 
-    # exp.save_results(save_path)
+        # p = DefineParameters()
+        p = get_parameters()
+        mpc = SMPC(**env_params, **mpc_params)
+        mpc.define_nlp(p)
+
+        exp = Experiment(mpc, save_name, args.project, args.weather_filename, args.uncertainty_value, p, rng)
+        exp.solve_nmpc()
+        df = exp.retrieve_results()
+        exp.save_results(df, save_path)
+        

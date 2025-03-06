@@ -26,9 +26,9 @@ constraints:
 
   W_min: 0.002          # lower bound on dry weight                     [kg{crop} m^{-2}]        
   W_max: 0.6            # upper bound on dry weight                     [kg{crop} m^{-2}]        
-  state_co2_min: 0.           # lower bound on CO2 concentration              [kg m^{-3} m^{-2}]        0
-  state_co2_max: 0.004        # upper bound on CO2 concentration              [kg m^{-3} m^{-2}]        2.75e-3
-  state_temp_min: 5.          # lower bound on temperature                    [°C]                    6.5
-  state_temp_max: 40.         # upper bound on temperature                    [°C]                    20
-  state_vp_min: 0.            # lower bound on vapor pressure                 [Pa]                     0
-  state_vp_max: 0.051         # upper bound on vapor pressure                 [Pa]                     70
+  state_co2_min: 0.           # lower bound on CO2 concentration              [kg m^{-3} m^{-2}]
+  state_co2_max: 0.004        # upper bound on CO2 concentration              [kg m^{-3} m^{-2}]
+  state_temp_min: 5.          # lower bound on temperature                    [°C]                    
+  state_temp_max: 40.         # upper bound on temperature                    [°C]                    
+  state_vp_min: 0.            # lower bound on vapor pressure                 [Pa]                     
+  state_vp_max: 0.051         # upper bound on vapor pressure                 [Pa]                     
