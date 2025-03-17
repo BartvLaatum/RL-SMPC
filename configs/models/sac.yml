@@ -5,7 +5,7 @@ LettuceGreenhouse:
   weather_filename: outdoorWeatherWurGlas2014.csv
 
 hyperparameters:
-  total_timesteps: 100*1920
+  total_timesteps: 192_000
   n_envs: 1
   policy: MlpPolicy
   learning_rate: 5.e-3

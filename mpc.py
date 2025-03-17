@@ -222,7 +222,6 @@ class MPC:
 
     def compute_penalties(self, y):
         lowerbound, upperbound = self.constraint_violation(y)
-        breakpoint()
         penalties = np.dot(self.lb_pen_w, lowerbound) + np.dot(self.ub_pen_w, upperbound)
         return np.sum(penalties)
 
@@ -316,7 +315,6 @@ class Experiment:
             self.u[:, ll+1] = us_opt[:, 0].toarray().ravel()
 
             params = parametric_uncertainty(self.p, self.uncertainty_value, self.rng)
-
             self.x[:, ll+1] = self.mpc.F(self.x[:, ll], self.u[:, ll+1], self.d[:, ll], params).toarray().ravel()
             self.y[:, ll+1] = self.mpc.g(self.x[:, ll+1], self.p).toarray().ravel()
 
