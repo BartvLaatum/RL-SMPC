@@ -164,6 +164,7 @@ class MPC:
         self.ds = self.opti.parameter(self.nd, self.Np)  # Disturbances
         self.init_u = self.opti.parameter(self.nu, 1)  # Initial control input
 
+        # NOTE Likely this is redundant, since we set the value using ca.to_function implementation
         self.opti.set_value(self.x0, self.x_initial)
         self.opti.set_value(self.ds, ca.DM.zeros(self.ds.shape))
         self.opti.set_value(self.init_u, self.u_initial)
@@ -172,7 +173,7 @@ class MPC:
 
         for ll in range(self.Np):
             self.opti.subject_to(self.xs[:, ll+1] == self.F(self.xs[:, ll], self.us[:, ll], self.ds[:, ll], p))
-            self.opti.subject_to(self.ys[:, ll] == self.g(self.xs[:, ll+1], p))
+            self.opti.subject_to(self.ys[:, ll] == self.g(self.xs[:, ll+1]))
             self.opti.subject_to(self.u_min <= (self.us[:,ll] <= self.u_max))                     # Input   Contraints
 
             # self.set_slack_variables(ll, p)
@@ -275,7 +276,7 @@ class Experiment:
         self.x = np.zeros((self.mpc.nx, self.mpc.N+1))
         self.y = np.zeros((self.mpc.nx, self.mpc.N+1))
         self.x[:, 0] = np.array(mpc.x_initial)
-        self.y[:, 0] = mpc.g(self.x[:, 0], self.p).toarray().ravel()
+        self.y[:, 0] = mpc.g(self.x[:, 0]).toarray().ravel()
         self.u = np.zeros((self.mpc.nu, self.mpc.N+1))
         self.d = load_disturbances(
             weather_filename,
@@ -315,8 +316,9 @@ class Experiment:
             self.u[:, ll+1] = us_opt[:, 0].toarray().ravel()
 
             params = parametric_uncertainty(self.p, self.uncertainty_value, self.rng)
+
             self.x[:, ll+1] = self.mpc.F(self.x[:, ll], self.u[:, ll+1], self.d[:, ll], params).toarray().ravel()
-            self.y[:, ll+1] = self.mpc.g(self.x[:, ll+1], self.p).toarray().ravel()
+            self.y[:, ll+1] = self.mpc.g(self.x[:, ll+1]).toarray().ravel()
 
             delta_dw = self.x[0, ll+1] - self.x[0, ll]
             econ_rew = compute_economic_reward(delta_dw, get_parameters(), self.mpc.dt, self.u[:, ll+1])
@@ -375,10 +377,7 @@ class Experiment:
         # Stack all arrays vertically
         return np.vstack(arrays).T
 
-
-    def save_results(self, save_path):
-        """
-        """
+    def retrieve_results(self, run=0):
         data = {}
         # transform the weather variables to the right units
         self.d[1, :] = co2dens2ppm(self.d[2, :], self.d[1, :])
@@ -401,6 +400,14 @@ class Experiment:
         data["rewards"] = self.rewards.flatten()
 
         df = pd.DataFrame(data, columns=data.keys())
+        df['run'] = run
+        return df
+
+
+    def save_results(self, save_path):
+        """
+        """
+        df = self.retrieve_results()
         df.to_csv(f"{save_path}/{self.save_name}.csv", index=False)
 
 if __name__ == "__main__":
@@ -416,6 +423,8 @@ if __name__ == "__main__":
 
     env_params = load_env_params(args.env_id)
     mpc_params = load_mpc_params(args.env_id)
+    env_params["n_days"] = 10
+    mpc_params["Np"] = 12
 
     # p = DefineParameters()
     p = get_parameters()
@@ -425,5 +434,3 @@ if __name__ == "__main__":
     rng = np.random.default_rng(42)
     exp = Experiment(mpc, args.save_name, args.project, args.weather_filename, uncertainty_value, p, rng)
     exp.solve_nmpc()
-
-    # exp.save_results(save_path)

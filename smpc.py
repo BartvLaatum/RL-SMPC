@@ -193,7 +193,10 @@ class SMPC:
         self.Js = self.Js / self.Ns
 
         # Intial constraint on input
-        self.opti.subject_to(-self.du_max <= (self.us[:,0] - self.init_u <= self.du_max))   # Initial change in input Constraint
+        # self.opti.subject_to(-self.du_max <= (self.compute_control_input(theta[:,0], self.g(self.x0, p)) - self.init_u <= self.du_max))
+        input_change = self.compute_control_input(theta[:, 0], self.x0) - self.init_u
+        self.opti.subject_to(-self.du_max <= input_change)
+        self.opti.subject_to(input_change <= self.du_max)
         self.opti.minimize(self.Js)
 
         self.opti.solver('ipopt', self.nlp_opts)

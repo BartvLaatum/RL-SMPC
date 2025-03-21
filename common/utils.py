@@ -149,7 +149,7 @@ def vaporDens2rh_hat(temp,vaporDens, p):
     Mw = 18.01528e-3
 
     # Saturation vapor pressure of air in given temperature [Pa]
-    satP = p0*np.exp (p[29] *    (temp / (temp+p[28]))) 
+    satP = p0 * np.exp( p[29] *    (temp / (temp+p[28]))) 
     # satP = p_0*np.exp(params[26]*temp/   (temp+params[27]))
 
     # convert to relative humidity using the ideal gas law pV=nRT => n=pV/RT 
@@ -260,17 +260,18 @@ def ode(x, u, d, p):
         )
         - p[14]*x[0] * 2**(0.1*x[2] - 2.5),
 
-        1 / p[7] * (
-            -((1 - np.exp(-p[16] * x[0])) * p[17] * d[0] *
-            (-p[18] * x[2]**2 + p[19] * x[2] - p[20]) * (x[1] - p[21])
+        (1 / p[7]) * (
+            -((1 - np.exp(-p[16] * x[0])) * (p[17] * d[0] *
+            (-p[18] * x[2]**2 + p[19] * x[2] - p[20]) * (x[1] - p[21]))
             / (p[17] * d[0] + (-p[18] * x[2]**2 + p[19] * x[2] - p[20]) * (x[1] - p[21])))
             + p[15] * x[0] * 2 ** (0.1 * x[2] - 2.5) + u[0]/1e6 - (u[1] / 1e3 + p[6]) * (x[1] - d[1])
         ),
 
-        1 / p[9] * (
+        (1 / p[9]) * (
             u[2] - (p[10] * u[1] * 1e-3 + p[11]) * (x[2] - d[2]) + p[12] * d[0]
         ),
-        1 / p[8] * (
+
+        (1 / p[8]) * (
             (1 - np.exp(-p[16] * x[0])) * p[22] * (p[0] / (p[4] * (x[2] + p[5])) *
             np.exp((p[1] * x[2]) / (x[2] + p[2])) - x[3]) - 
             (u[1]*1e-3 + p[6]) * (x[3] - d[3])
@@ -281,7 +282,7 @@ def ode(x, u, d, p):
 
 def g_measure(x):
     y = casadi.vertcat(
-        1e3*x[0],
+        x[0],
         co2dens2ppm(x[2], x[1]),
         x[2],
         casadi.mmin(casadi.horzcat(100, vaporDens2rh(x[2], x[3])))
@@ -310,12 +311,11 @@ def define_model(dt, xmin, xmax):
 
     # define the ode, and measurement function
     dxdt = ode(x, u, d, params)
-    y = g_hat_measure(x, params)
-    # y = g_measure(x)
+    y = g_measure(x)
 
     # generate a casadi function
     f = casadi.Function("f", [x, u, d, params], [dxdt], ["x", "u", "d", "params"], ["dxdt"])
-    g = casadi.Function("g", [x, params], [y], ["x", "params"], ["y"])
+    g = casadi.Function("g", [x], [y], ["x"], ["y"])
     # expand casadi function for computational efficiency
     f.expand()
     g.expand()

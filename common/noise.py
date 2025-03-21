@@ -14,7 +14,7 @@ def parametric_uncertainty(parameters, uncertainty, RNG):
     """
     # The following crop parameters in the parameter vector are perturbed
     parameters = np.array(parameters)
-    noise = RNG.uniform(-uncertainty, uncertainty, size=parameters.shape[0])
+    noise = RNG.uniform(-uncertainty/2, uncertainty/2, size=parameters.shape[0])
     parameters += noise*parameters
     return parameters
 

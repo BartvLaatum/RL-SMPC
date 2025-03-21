@@ -226,7 +226,7 @@ class RLMPC(MPC):
         terminal_u = self.opti.parameter(self.nu, 1)
 
         # Set parameters
-        # self.opti.set_value(ds, get_d(0)) # TODO: DO we need to set ds to the disturbance values? (in mpc_opti.py we didn"t require this.)
+        # self.opti.set_value(ds, get_d(0)) # NOTE: DO we need to set ds to the disturbance values? (in mpc_opti.py we didn"t require this.)
         # self.opti.set_value(ds, ca.DM.zeros(ds.shape))
         # self.opti.set_value(x0, self.x_initial)
         # self.opti.set_value(init_u, self.u_initial)
@@ -239,7 +239,6 @@ class RLMPC(MPC):
         self.opti.subject_to(0.95*terminal_u <= (us[:,-1]  <= 1.05*terminal_u))
 
         OBS = ca.vertcat(ys[0, -1], time_step+self.Np)
-        OBS*= 1e-3
         OBS_NORM = self.opti.variable(2)
         self.opti.subject_to(
             OBS_NORM == self.normalizeState_casadi(
@@ -396,11 +395,8 @@ class Experiment:
             np.ndarray: the gradient of the cost function
             np.ndarray: the hessian of the cost function
         """
-        obs, _ = self.mpc.eval_env.reset()
 
         logs = self.mpc.unroll_actor(horizon=self.mpc.Np)
-        casadi_vf_approx_param = self.mpc.vf_casadi_model_approx.get_params(np.zeros(2))
-        coef_size = casadi_vf_approx_param.shape[0]
 
         us_opt, xs_opt, J_mpc_1, Jt_mpc_1, terminal_obs_1 = self.mpc.MPC_func(
             self.x[:, 0], 
@@ -420,13 +416,10 @@ class Experiment:
                 logs = self.mpc.unroll_actor(horizon=self.mpc.Np)
                 rl_guess_xs = logs["x"]
                 rl_guess_us = logs["u"]
-                rl_guess_obs_norm = logs["obs_norm"]
 
                 # Initial guesses for MPC
                 x_guess_1 = np.copy(rl_guess_xs)
                 u_guess_1 = np.copy(rl_guess_us)
-                x_guess_2 = np.copy(rl_guess_xs)
-                u_guess_2 = np.copy(rl_guess_us)
 
                 TERM_POINT_1 = np.copy(logs['obs'][:,-1])
                 TERM_POINT_1 = np.array([TERM_POINT_1[0], TERM_POINT_1[7]])
@@ -436,14 +429,6 @@ class Experiment:
                     np.array([self.mpc.y_max[0], self.mpc.N])
                 )
 
-                # CURRENTLY UNUSED
-                # TERM_POINT_2 = np.copy(logs['obs'][:,-1]) 
-                # # # TERM_POINT_2 = np.array([TERM_POINT_2[0],TERM_POINT_2[7]])
-                # TERM_POINT_2 = self.mpc.normalizeState_casadi(
-                    # TERM_POINT_2,
-                    # np.array([self.mpc.y_min[0], 0]),
-                    # np.array([self.mpc.y_max[0], self.mpc.N])
-                # )
             else:
                 # Get the optimal control value
                 end_u = np.copy(us_opt[:, -1])
@@ -456,7 +441,6 @@ class Experiment:
                 # Extract Trajectories from agent
                 xx = logs_1['x']
                 uu = logs_1['u']
-                oo = logs_1['obs_norm']
 
                 u_guess_1 = np.roll(us_opt, shift=-1, axis=1)
                 u_guess_1[:,-1] = np.copy(uu[:,-1])
@@ -474,19 +458,6 @@ class Experiment:
 
                 # Unrolling actor from current state
                 self.mpc.eval_env.set_env_state(self.x[:, ll], self.x[:, ll-1], self.u[:, ll], ll)
-                logs_2 = self.mpc.unroll_actor(horizon=self.mpc.Np)
-
-                x_guess_2 = np.copy(logs_2['x'])
-                u_guess_2 = np.copy(logs_2['u'])
-
-                # CURRENTLY UNUSED
-                # TERM_POINT_2 = np.copy(logs_2['obs'][:,-1])
-                # # # TERM_POINT_2 = np.array([TERM_POINT_2[0], TERM_POINT_2[7]])
-                # TERM_POINT_2 = self.mpc.normalizeState_casadi(
-                    # TERM_POINT_2, 
-                #     np.array([self.mpc.y_min[0], 0]),
-                #     np.array([self.mpc.y_max[0], self.mpc.N])
-                # )
 
             # Getting Optimal Control Value
             coefs_1 = self.mpc.vf_casadi_model_approx.get_params(TERM_POINT_1.toarray().ravel())

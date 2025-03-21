@@ -165,8 +165,8 @@ class LettuceGreenhouse(gym.Env):
         """
         return self.x
 
-    def get_y(self, params):
-        return self.g(np.copy(self.x), params).toarray().flatten()
+    def get_y(self):
+        return self.g(np.copy(self.x)).toarray().flatten()
 
     def get_d(self):
         return transform_disturbances(np.copy(self.d[:, self.timestep]))
@@ -174,12 +174,9 @@ class LettuceGreenhouse(gym.Env):
     def set_env_state(self, x, x_prev, u, timestep):
         self.x = np.copy(x)
         self.x_prev = np.copy(x_prev)
-        self.y = self.g(x, self.p).toarray().ravel()
-        self.y_prev = self.g(x_prev, self.p).toarray().ravel()
+        self.y = self.g(x).toarray().ravel()
+        self.y_prev = self.g(x_prev).toarray().ravel()
         y = np.copy(self.y)
-
-        # if self.use_growth_dif:
-        #     y[0] = y[0]  - self.y_prev[0]
 
         self.timestep = timestep
         self.u = np.copy(u).ravel()
@@ -187,7 +184,7 @@ class LettuceGreenhouse(gym.Env):
         self.obs = np.concatenate([y, self.u, [self.timestep], d], dtype=np.float32)
 
 
-    def step(self, action: np.ndarray):
+    def step(self, action: np.ndarray, pk=None):
         """
         Step function that simulates one timestep into the future given input action.
 
@@ -206,11 +203,11 @@ class LettuceGreenhouse(gym.Env):
         self.x_prev = np.copy(self.x)
         self.y_prev = np.copy(self.y) # Store previous system outputs
 
-        params = parametric_uncertainty(self.p, self.uncertainty_value, self._np_random)
+        params = parametric_uncertainty(self.p, self.uncertainty_value, self._np_random) if pk is None else pk
 
         # transition state next state given action and observe environment
         self.x = self.F(self.x, self.u, self.d[:, self.timestep], params)
-        self.y = self.get_y(self.p)
+        self.y = self.get_y()
         self.timestep += 1
 
         # terminate if state is terminal or crops died
@@ -324,7 +321,7 @@ class LettuceGreenhouse(gym.Env):
         self.prev_dw = np.copy(self.x[0])
 
         self.d = load_disturbances(self.weather_filename, self.L, self.start_day, self.dt , self.Np*2, self.nd)
-        self.y = self.get_y(self.p)
+        self.y = self.get_y()
         self.y_prev = np.copy(self.y)
 
         self.penalty = 0.
@@ -366,7 +363,7 @@ class LettuceGreenhouse(gym.Env):
         random_x[3] =  np.random.uniform(rh2vaporDens(random_x[2],50),rh2vaporDens(random_x[2],100))
           
         random_x = np.clip(random_x, self.x_min, self.x_max)
-        random_y = self.g(random_x, self.p).toarray().ravel() 
+        random_y = self.g(random_x).toarray().ravel() 
 
         bounds_min = self.u.ravel()[0] - (std)*(self.u_max[0]-self.u_min[0])/2
         bounds_max = self.u.ravel()[0] + (std)*(self.u_max[0]-self.u_min[0])/2
@@ -399,7 +396,7 @@ class LettuceGreenhouse(gym.Env):
 
         # WHY ARE THE STATE VARIABLES COPIED HERE?
         self.x = np.copy(random_x)
-        self.y = self.g(random_x, self.p).toarray().ravel()  
+        self.y = self.g(random_x).toarray().ravel()  
         self.obs = np.copy(random_obs)
         self.u = np.copy(random_u)
 
