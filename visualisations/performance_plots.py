@@ -67,7 +67,7 @@ def load_data(model_names, mode, project, Ns=[], uncertainty_value=None):
         
         # Load MPC and RL-MPC data for each horizon
         for h in horizons:
-            mpc_path = f'data/{project}/{mode}/mpc/mpc-tight-rh-{h}{uncertainty_suffix}.csv'
+            mpc_path = f'data/{project}/{mode}/mpc/mpc-noise-correction-{h}{uncertainty_suffix}.csv'
             rlmpc_path = f'data/{project}/{mode}/rlmpc/rlmpc-{model}-{h}{uncertainty_suffix}.csv'
 
             if h not in data['mpc'] and os.path.exists(mpc_path):
@@ -203,21 +203,20 @@ def create_plot(figure_name, project, data, horizons, model_names, mode, variabl
         color_counter += 1
 
 
-    # Plot Stochastic RL-SMPC results 
-    for i, n in enumerate(Ns, 1+len(Ns)):
+    # Plot Stochastic RL-SMPC results
+    for idx, model in enumerate(model_names):
         mean_rlmpc_final_rewards = []
         std_rlmpc_final_rewards = []
         for h in horizons:
             if h in data['rlsmpc']:
-                if n in data['rlsmpc'][h]:
-                    grouped_runs = data['rlsmpc'][h][n].groupby("run")
-                    cumulative_rewards = grouped_runs[variable].sum()
+                grouped_runs = data['rlsmpc'][h][model].groupby("run")
+                cumulative_rewards = grouped_runs[variable].sum()
 
-                    mean_rlmpc_final_rewards.append(cumulative_rewards.mean())
-                    std_rlmpc_final_rewards.append(cumulative_rewards.std())
+                mean_rlmpc_final_rewards.append(cumulative_rewards.mean())
+                std_rlmpc_final_rewards.append(cumulative_rewards.std())
         n2plot = len(mean_rlmpc_final_rewards)
         if mean_rlmpc_final_rewards:
-            ax.plot(horizon_nums[:n2plot], mean_rlmpc_final_rewards[:n2plot], 'o-', label=f'RL-SMPC-{n}Ns', color=colors(color_counter))
+            ax.plot(horizon_nums[:n2plot], mean_rlmpc_final_rewards[:n2plot], 'o-', label=f'RL-SMPC', color=colors(color_counter))
             if mode == "stochastic":
                 ax.fill_between(
                     horizon_nums[:n2plot], 

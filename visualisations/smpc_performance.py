@@ -58,14 +58,27 @@ def load_data(model_names, mode, project, Ns=[], uncertainty_value=None):
         'smpc-tight': {}
     }
 
-
-
-
     uncertainty_suffix = f'-{uncertainty_value}' if uncertainty_value else ''
+
+    for model in model_names:
+        # Load RL data
+        rl_path = f'data/{project}/{mode}/rl/{model}.csv'
+        if os.path.exists(rl_path):
+            data['rl'][model] = pd.read_csv(rl_path)
+
+        # Load MPC and RL-MPC data for each horizon
+        for h in horizons:
+            rlsmpc_path = f'data/{project}/{mode}/rlsmpc/{model}-zero-order-{h}{uncertainty_suffix}.csv'
+
+            if os.path.exists(rlsmpc_path):
+                if h not in data['rlsmpc']:
+                    data['rlsmpc'][h] = {}
+                data['rlsmpc'][h][model] = pd.read_csv(rlsmpc_path)
+
     for h in horizons:
         mpc_path = f'data/{project}/{mode}/mpc/mpc-tight-rh-{h}{uncertainty_suffix}.csv'
         smpc_path = f'data/{project}/{mode}/smpc/smpc-tight-rh-{h}-10Ns{uncertainty_suffix}.csv'
-        smpc_horizon = f'data/{project}/{mode}/smpc/smpc-tight-rh-horizon-weights-{h}-10Ns{uncertainty_suffix}.csv'
+        # smpc_horizon = f'data/{project}/{mode}/smpc/smpc-tight-rh-horizon-weights-{h}-10Ns{uncertainty_suffix}.csv'
 
         if h not in data['mpc'] and os.path.exists(mpc_path):
             data['mpc'][h] = pd.read_csv(mpc_path)
@@ -75,11 +88,11 @@ def load_data(model_names, mode, project, Ns=[], uncertainty_value=None):
                 data['smpc'][h] = {}
             data['smpc'][h]= pd.read_csv(smpc_path)
 
-        if os.path.exists(smpc_horizon):
-            print(h)
-            if h not in data['smpc-tight']:
-                data['smpc-tight'][h] = {}
-            data['smpc-tight'][h] = pd.read_csv(smpc_horizon)    
+        # if os.path.exists(smpc_horizon):
+        #     print(h)
+        #     if h not in data['smpc-tight']:
+        #         data['smpc-tight'][h] = {}
+        #     data['smpc-tight'][h] = pd.read_csv(smpc_horizon)    
 
     return data, horizons
 
