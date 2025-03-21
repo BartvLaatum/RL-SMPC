@@ -88,28 +88,27 @@ class RLMPC(MPC):
 
         min_val = ca.MX.sym("min_val")
         max_val = ca.MX.sym("max_val")
-        obs_norm = 10 * ((observation - min_val) / (max_val - min_val)) # TODO: Should it use parameters from SHARED.params instead of 10 and 5?
-        normalizeObs_casadi = ca.Function("normalizeObs", [observation, min_val, max_val], [obs_norm])
+        # obs_norm = 10 * ((observation - min_val) / (max_val - min_val)) # TODO: Should it use parameters from SHARED.params instead of 10 and 5?
+        # normalizeObs_casadi = ca.Function("normalizeObs", [observation, min_val, max_val], [obs_norm])
 
         state_norm = 10 * ((observation - min_val) / (max_val - min_val)) - 5 # TODO: Should it use parameters from SHARED.params instead of 10 and 5?
         self.normalizeState_casadi = ca.Function("normalizeObs", [observation, min_val, max_val], [state_norm])
 
         # Creating casadi verions of the value functions
-        vf_casadi_model = l4c.L4CasADi(self.trained_vf, device="cpu", name=f"vf_{run}")
-        obs_sym_vf = ca.MX.sym("obs", 2, 1)
-        # TODO: I need to transpose the observation to match the shape of the trained value function
+        # vf_casadi_model = l4c.L4CasADi(self.trained_vf, device="cpu", name=f"vf_{run}")
         # since observation: (batch_size, N_features) and trained value function: (N_features, output_size)
         # vf_out = vf_casadi_model(obs_sym_vf)
-        vf_out = vf_casadi_model(obs_sym_vf.T)
-        vf_function = ca.Function("vf", [obs_sym_vf], [vf_out])
+        # vf_out = vf_casadi_model(obs_sym_vf.T)
+        # vf_function = ca.Function("vf", [obs_sym_vf], [vf_out])
 
         # Approximated Model
+        obs_sym_vf = ca.MX.sym("obs", 2, 1)
         self.vf_casadi_model_approx = l4c.realtime.RealTimeL4CasADi(self.trained_vf, approximation_order=1)
         vf_casadi_approx_sym_out = self.vf_casadi_model_approx(obs_sym_vf)
         self.vf_casadi_approx_func =  ca.Function("vf_approx",[obs_sym_vf,self.vf_casadi_model_approx.get_sym_params()],[vf_casadi_approx_sym_out])
 
         # Qf from agent
-        qf_casadi_model = l4c.L4CasADi(qvalue_fn(self.model.critic.q_networks[0]), device="cpu", name=f"qf_{run}") # Q: can we use "cuda" device? 
+        qf_casadi_model = l4c.L4CasADi(qvalue_fn(self.model.critic.q_networks[0]), device="cpu", name=f"qf_{run}") # NOTE: can we use "cuda" device? 
         obs_and_action_sym = ca.MX.sym("obs_and_a", 15, 1)
         qf_out = qf_casadi_model(obs_and_action_sym.T)
         self.qf_function = ca.Function("qf", [obs_and_action_sym], [qf_out])
@@ -120,12 +119,6 @@ class RLMPC(MPC):
         action_out = actor_casadi_model(obs_sym.T)
         self.actor_function = ca.Function("action", [obs_sym], [action_out])
 
-        obs, _ = self.eval_env.reset()
-
-        logs = self.unroll_actor(horizon=self.Np)
-
-        self.rl_guess_xs = logs["x"]
-        self.rl_guess_us = logs["u"]
         casadi_vf_approx_param = self.vf_casadi_model_approx.get_params(np.zeros(2))
         self.coef_size = casadi_vf_approx_param.shape[0]
 
@@ -218,22 +211,12 @@ class RLMPC(MPC):
         init_u = self.opti.parameter(self.nu, 1)  # Initial control input
         ds = self.opti.parameter(self.nd, self.Np+1) # Disturbance Variables
 
-        self.opti.set_initial(xs, self.rl_guess_xs)
-        self.opti.set_initial(us, self.rl_guess_us)
+        # self.opti.set_initial(xs, self.rl_guess_xs)
+        # self.opti.set_initial(us, self.rl_guess_us)
 
         # Terminal constraints
         terminal_x = self.opti.parameter(self.nx, 1)
         terminal_u = self.opti.parameter(self.nu, 1)
-
-        # Set parameters
-        # self.opti.set_value(ds, get_d(0)) # NOTE: DO we need to set ds to the disturbance values? (in mpc_opti.py we didn"t require this.)
-        # self.opti.set_value(ds, ca.DM.zeros(ds.shape))
-        # self.opti.set_value(x0, self.x_initial)
-        # self.opti.set_value(init_u, self.u_initial)
-        # self.opti.set_value(time_step, 0)
-        # self.opti.set_value(terminal_x, self.rl_guess_xs[:,-1])
-        # self.opti.set_value (terminal_u, self.rl_guess_us[:,-1])
-        # self.opti.set_value(TAYLOR_COEFS, self.vf_casadi_model_approx.get_params(np.zeros(2)))
 
         self.opti.subject_to(0.95*terminal_x <= (xs[:,-1]  <= 1.05*terminal_x))
         self.opti.subject_to(0.95*terminal_u <= (us[:,-1]  <= 1.05*terminal_u))
