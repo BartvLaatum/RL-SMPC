@@ -797,7 +797,7 @@ class Experiment:
         Generate state, input, and observation samples for each scenario.
 
         This function generates various samples and their derivatives for each scenario 
-        by unrolling the actor with the provided parametric samples.
+        by unrolling the RL policy (i.e., actor) on the environment with the provided parametric samples.
 
         Args:
             p_samples (List[np.ndarray]): List of parametric samples for each scenario.
@@ -808,14 +808,14 @@ class Experiment:
                 - xk_samples: List of state trajectories
                 - uk_samples: List of input trajectories
                 - obs_norm_y_samples: List of normalized output observations
-                - obsnorminput_samples: List of normalized input observations
+                - obs_norm_input_samples: List of normalized input observations
                 - jacobian_obs_state_samples: List of state Jacobians
                 - jacobian_obs_input_samples: List of input Jacobians
         """
         xk_samples = []
         uk_samples = []
         obs_norm_y_samples = []
-        obsnorminput_samples = []
+        obs_norm_input_samples = []
         jacobian_obs_state_samples = []
         jacobian_obs_input_samples = []
 
@@ -829,8 +829,8 @@ class Experiment:
 
             # Extract normalized observations
             obs_norm = np.vstack(log["obs_norm"])
-            obs_norm_y_samples.append(obs_norm[:self.mpc.ny, :])
-            obsnorminput_samples.append(obs_norm[self.mpc.ny:self.mpc.ny+self.mpc.nu, :])
+            obs_norm_y_samples.append(obs_norm[:self.mpc.ny, :-1])
+            obs_norm_input_samples.append(obs_norm[self.mpc.ny:self.mpc.ny+self.mpc.nu, :-1])
 
             # Extract components for Jacobian computation
             y = log["obs_norm"][:4]
@@ -856,7 +856,7 @@ class Experiment:
             jacobian_obs_state_samples.append(np.hstack(jacobian_obs_state))
             jacobian_obs_input_samples.append(np.hstack(jacobian_obs_input))
 
-        return (xk_samples, uk_samples, obs_norm_y_samples, obsnorminput_samples, 
+        return (xk_samples, uk_samples, obs_norm_y_samples, obs_norm_input_samples, 
                 jacobian_obs_state_samples, jacobian_obs_input_samples)
 
     def solve_nsmpc(self, order) -> None:
@@ -886,7 +886,7 @@ class Experiment:
                 self.mpc.eval_env.set_env_state(self.x[:, ll], self.x[:,ll], self.u[:,ll], ll)
             else:
                 self.mpc.eval_env.set_env_state(self.x[:, ll], self.x[:,ll-1], self.u[:,ll], ll)
-            (xk_samples, uk_samples, obs_norm_y_samples, obsnorminput_samples, 
+            (xk_samples, uk_samples, obs_norm_y_samples, obs_norm_input_samples, 
                 jacobian_obs_state_samples, jacobian_obs_input_samples) = \
                 self.generate_samples(p_samples)
 
@@ -896,11 +896,6 @@ class Experiment:
 
             # Convert samples to CasADi DM format
             # x_init_list = [xk_samples[i] for i in range(self.mpc.Ns)]
-
-
-            x_sample_list = [xk_samples[i][:, :-1] for i in range(self.mpc.Ns)]
-            obs_norm_y_sample_list = [obs_norm_y_samples[i][:,:-1] for i in range(self.mpc.Ns)]
-            obs_norm_input_sample_list = [obsnorminput_samples[i][:,:-1] for i in range(self.mpc.Ns)]
 
             # we have to transpose p_samples since MPC_func expects matrix of shape (n_params, Np)
             p_sample_list = [p_samples[i].T for i in range(self.mpc.Ns)]
@@ -925,8 +920,8 @@ class Experiment:
                     timestep,               # current timestep
                     *xk_samples,          # initial guess for the states
                     *uk_samples,            # input samples
-                    *obs_norm_y_sample_list,  # observation y samples
-                    *obs_norm_input_sample_list,      # observation input samples
+                    *obs_norm_y_samples,  # observation y samples
+                    *obs_norm_input_samples,      # observation input samples
                     *jacobian_obs_state_samples,    # jacobian evaluated at observation y samples
                     *jacobian_obs_input_samples,    # jacobian evaluated at observation input samples
                     *p_sample_list                  # parameter samples
@@ -946,8 +941,8 @@ class Experiment:
                 obs_norm_u = self.mpc.norm_obs_agent(obs_u, self.mpc.mean[self.mpc.ny:self.mpc.ny+self.mpc.nu], self.mpc.variance[self.mpc.ny:self.mpc.ny+self.mpc.nu])
 
                 # Compute control input
-                us_opt = uk_samples[0][:, 0] + ca.mtimes(jac_y_matrix, (obs_norm_y_sample_list[0][:, 0] - obs_norm_y)) + \
-                    ca.mtimes(jac_input_matrix, obs_norm_input_sample_list[0][:, 0] - obs_norm_u) + theta_opt[:, 0]
+                us_opt = uk_samples[0][:, 0] + ca.mtimes(jac_y_matrix, (obs_norm_y_samples[0][:, 0] - obs_norm_y)) + \
+                    ca.mtimes(jac_input_matrix, obs_norm_input_samples[0][:, 0] - obs_norm_u) + theta_opt[:, 0]
 
             self.u[:, ll+1] = us_opt.toarray().ravel()
 
