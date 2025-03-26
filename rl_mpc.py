@@ -107,8 +107,8 @@ class RLMPC(MPC):
         vf_casadi_approx_sym_out = self.vf_casadi_model_approx(obs_sym_vf)
         self.vf_casadi_approx_func =  ca.Function("vf_approx",[obs_sym_vf,self.vf_casadi_model_approx.get_sym_params()],[vf_casadi_approx_sym_out])
 
-        # Qf from agent
-        qf_casadi_model = l4c.L4CasADi(qvalue_fn(self.model.critic.q_networks[0]), device="cpu", name=f"qf_{run}") # NOTE: can we use "cuda" device? 
+        # Qf from agent (NOTE: Only used for PPO)
+        qf_casadi_model = l4c.L4CasADi(qvalue_fn(self.model.critic.q_networks[0]), device="cpu", name=f"qf_{run}")
         obs_and_action_sym = ca.MX.sym("obs_and_a", 15, 1)
         qf_out = qf_casadi_model(obs_and_action_sym.T)
         self.qf_function = ca.Function("qf", [obs_and_action_sym], [qf_out])
@@ -137,8 +137,6 @@ class RLMPC(MPC):
             - "total_reward" (float): Total accumulated reward.
             - "reward_log" (numpy.ndarray): Array of logged rewards.
         """
-
-        # Import
 
         # Define empty log variables
         log = {
@@ -216,7 +214,7 @@ class RLMPC(MPC):
 
         # Terminal constraints
         terminal_x = self.opti.parameter(self.nx, 1)
-        terminal_u = self.opti.parameter(self.nu, 1)
+        terminal_u = self.opti.parameter(self.nu, 1) # NOTE do we need a terminal u; I guess not.??
 
         self.opti.subject_to(0.95*terminal_x <= (xs[:,-1]  <= 1.05*terminal_x))
         self.opti.subject_to(0.95*terminal_u <= (us[:,-1]  <= 1.05*terminal_u))
@@ -239,7 +237,7 @@ class RLMPC(MPC):
 
             # System dynamics and input constraints
             self.opti.subject_to(xs[:, ll+1] == self.F(xs[:, ll], us[:, ll], ds[:, ll], p))
-            self.opti.subject_to(ys[:, ll] == self.g(xs[:, ll+1], p))
+            self.opti.subject_to(ys[:, ll] == self.g(xs[:, ll+1]))
             self.opti.subject_to(self.u_min <= (us[:, ll] <= self.u_max))
 
             # Linear penalty functions
@@ -343,7 +341,7 @@ class Experiment:
         self.x = np.zeros((self.mpc.nx, self.mpc.N+1))
         self.y = np.zeros((self.mpc.nx, self.mpc.N+1))
         self.x[:, 0] = np.array(mpc.x_initial)
-        self.y[:, 0] = mpc.g(self.x[:, 0], self.p).toarray().ravel()
+        self.y[:, 0] = mpc.g(self.x[:, 0]).toarray().ravel()
         self.u = np.zeros((self.mpc.nu, self.mpc.N+1))
         self.u[:, 0] = np.array(mpc.u_initial)
         self.d = load_disturbances(
@@ -379,19 +377,6 @@ class Experiment:
             np.ndarray: the hessian of the cost function
         """
 
-        logs = self.mpc.unroll_actor(horizon=self.mpc.Np)
-
-        us_opt, xs_opt, J_mpc_1, Jt_mpc_1, terminal_obs_1 = self.mpc.MPC_func(
-            self.x[:, 0], 
-            self.d[:, 0:0+self.mpc.Np+1], 
-            self.mpc.u_initial,
-            0,
-            self.mpc.rl_guess_xs[:,-1],
-            self.mpc.rl_guess_us[:,-1], 
-            self.mpc.rl_guess_xs, 
-            self.mpc.rl_guess_us,
-            self.mpc.vf_casadi_model_approx.get_params(np.zeros(2))
-        )
         self.mpc.eval_env.reset()
         for ll in range(self.mpc.N):
             if ll == 0:
@@ -420,7 +405,7 @@ class Experiment:
 
                 # Set environment to this state
                 self.mpc.eval_env.set_env_state(end_x, end_xx, end_u, ll+self.mpc.Np-1)
-                logs_1 = self.mpc.unroll_actor(horizon=1)   # TODO: why is this horizon=1?
+                logs_1 = self.mpc.unroll_actor(horizon=1) 
                 # Extract Trajectories from agent
                 xx = logs_1['x']
                 uu = logs_1['u']
@@ -438,9 +423,6 @@ class Experiment:
                     np.array([self.mpc.y_min[0], 0]),
                     np.array([self.mpc.y_max[0], self.mpc.N])
                 )
-
-                # Unrolling actor from current state
-                self.mpc.eval_env.set_env_state(self.x[:, ll], self.x[:, ll-1], self.u[:, ll], ll)
 
             # Getting Optimal Control Value
             coefs_1 = self.mpc.vf_casadi_model_approx.get_params(TERM_POINT_1.toarray().ravel())
@@ -462,7 +444,7 @@ class Experiment:
 
             # Evolve state
             self.x[:, ll+1] = self.mpc.F(self.x[:, ll], self.u[:, ll+1], self.d[:, ll], params).toarray().ravel()
-            self.y[:, ll+1] = self.mpc.g(self.x[:, ll+1], self.p).toarray().ravel()
+            self.y[:, ll+1] = self.mpc.g(self.x[:, ll+1]).toarray().ravel()
 
             delta_dw = self.x[0, ll+1] - self.x[0, ll]
             econ_rew = compute_economic_reward(delta_dw, get_parameters(), self.mpc.dt, self.u[:, ll+1])

@@ -154,55 +154,55 @@ class MPC:
         num_penalties = 6
 
         # Decision Variables (Control inputs, slack variables, states, outputs)
-        self.us = self.opti.variable(self.nu, self.Np)  # Control inputs (nu x Np)
-        self.P = self.opti.variable(num_penalties, self.Np)
-        self.xs = self.opti.variable(self.nx, self.Np+1)
-        self.ys = self.opti.variable(self.ny, self.Np)
+        us = self.opti.variable(self.nu, self.Np)  # Control inputs (nu x Np)
+        P = self.opti.variable(num_penalties, self.Np)
+        xs = self.opti.variable(self.nx, self.Np+1)
+        ys = self.opti.variable(self.ny, self.Np)
 
         # Parameters
-        self.x0 = self.opti.parameter(self.nx, 1)  # Initial state
-        self.ds = self.opti.parameter(self.nd, self.Np)  # Disturbances
-        self.init_u = self.opti.parameter(self.nu, 1)  # Initial control input
+        x0 = self.opti.parameter(self.nx, 1)  # Initial state
+        ds = self.opti.parameter(self.nd, self.Np)  # Disturbances
+        init_u = self.opti.parameter(self.nu, 1)  # Initial control input
 
         # NOTE Likely this is redundant, since we set the value using ca.to_function implementation
-        self.opti.set_value(self.x0, self.x_initial)
-        self.opti.set_value(self.ds, ca.DM.zeros(self.ds.shape))
-        self.opti.set_value(self.init_u, self.u_initial)
+        # self.opti.set_value(x0, self.x_initial)
+        # self.opti.set_value(ds, ca.DM.zeros(ds.shape))
+        # self.opti.set_value(init_u, self.u_initial)
 
-        self.Js = 0
+        J = 0
 
         for ll in range(self.Np):
-            self.opti.subject_to(self.xs[:, ll+1] == self.F(self.xs[:, ll], self.us[:, ll], self.ds[:, ll], p))
-            self.opti.subject_to(self.ys[:, ll] == self.g(self.xs[:, ll+1]))
-            self.opti.subject_to(self.u_min <= (self.us[:,ll] <= self.u_max))                     # Input   Contraints
+            self.opti.subject_to(xs[:, ll+1] == self.F(xs[:, ll], us[:, ll], ds[:, ll], p))
+            self.opti.subject_to(ys[:, ll] == self.g(xs[:, ll+1]))
+            self.opti.subject_to(self.u_min <= (us[:,ll] <= self.u_max))                     # Input   Contraints
 
             # self.set_slack_variables(ll, p)
-            self.opti.subject_to(self.P[:, ll] >= 0)
-            self.opti.subject_to(self.P[0, ll] >= self.lb_pen_w[0,0] * (self.y_min[1] - self.ys[1, ll]))
-            self.opti.subject_to(self.P[1, ll] >= self.ub_pen_w[0,0] * (self.ys[1, ll] - self.y_max[1]))
-            self.opti.subject_to(self.P[2, ll] >= self.lb_pen_w[0,1] * (self.y_min[2] - self.ys[2, ll]))
-            self.opti.subject_to(self.P[3, ll] >= self.ub_pen_w[0,1] * (self.ys[2, ll] - self.y_max[2]))
-            self.opti.subject_to(self.P[4, ll] >= self.lb_pen_w[0,2] * (self.y_min[3] - self.ys[3, ll]))
-            self.opti.subject_to(self.P[5, ll] >= self.ub_pen_w[0,2] * (self.ys[3, ll] - (self.y_max[3] - 2.0)))
+            self.opti.subject_to(P[:, ll] >= 0)
+            self.opti.subject_to(P[0, ll] >= self.lb_pen_w[0,0] * (self.y_min[1] - ys[1, ll]))
+            self.opti.subject_to(P[1, ll] >= self.ub_pen_w[0,0] * (ys[1, ll] - self.y_max[1]))
+            self.opti.subject_to(P[2, ll] >= self.lb_pen_w[0,1] * (self.y_min[2] - ys[2, ll]))
+            self.opti.subject_to(P[3, ll] >= self.ub_pen_w[0,1] * (ys[2, ll] - self.y_max[2]))
+            self.opti.subject_to(P[4, ll] >= self.lb_pen_w[0,2] * (self.y_min[3] - ys[3, ll]))
+            self.opti.subject_to(P[5, ll] >= self.ub_pen_w[0,2] * (ys[3, ll] - (self.y_max[3] - 2.0)))
 
             # COST FUNCTION WITH PENALTIES
-            delta_dw = self.xs[0, ll+1] - self.xs[0, ll]
-            self.Js -= compute_economic_reward(delta_dw, p, self.dt, self.us[:,ll])
-            self.Js += (self.P[0, ll]+ self.P[1, ll]+self.P[2, ll]+self.P[3, ll]+self.P[4, ll]+self.P[5, ll])
+            delta_dw = xs[0, ll+1] - xs[0, ll]
+            J -= compute_economic_reward(delta_dw, p, self.dt, us[:,ll])
+            J += (P[0, ll]+ P[1, ll]+P[2, ll]+P[3, ll]+P[4, ll]+P[5, ll])
 
             if ll < self.Np-1:
-                self.opti.subject_to(-self.du_max<=(self.us[:,ll+1] - self.us[:,ll]<=self.du_max))     # Change in input Constraint
+                self.opti.subject_to(-self.du_max<=(us[:,ll+1] - us[:,ll]<=self.du_max))     # Change in input Constraint
 
         # Constraints on intial state and input
-        self.opti.subject_to(-self.du_max <= (self.us[:,0] - self.init_u <= self.du_max))   # Initial change in input Constraint
-        self.opti.subject_to(self.xs[:,0] == self.x0)     # Initial Condition Constraint
-        self.opti.minimize(self.Js)
+        self.opti.subject_to(-self.du_max <= (us[:,0] - init_u <= self.du_max))   # Initial change in input Constraint
+        self.opti.subject_to(xs[:,0] == x0)     # Initial Condition Constraint
+        self.opti.minimize(J)
 
         self.opti.solver('ipopt', self.nlp_opts)
         self.MPC_func = self.opti.to_function(
             'MPC_func',
-            [self.x0, self.ds, self.init_u],
-            [self.us, self.xs, self.ys, self.Js],
+            [x0, ds, init_u],
+            [us, xs, ys, J],
             ['x0','ds','u0'],
             ['u_opt', 'x_opt', 'y_opt', 'J_opt']
         )
