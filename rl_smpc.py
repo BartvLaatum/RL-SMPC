@@ -365,14 +365,14 @@ class RLSMPC(SMPC):
 
         self.MPC_func = self.opti.to_function(
             "MPC_func",
-            [x0, ds, init_u, timestep, *xs_list, *terminal_xs, *u_samples, *p_samples, *TAYLOR_COEFS_samples],
+            [x0, ds, init_u, timestep, theta, *xs_list, *terminal_xs, *u_samples, *p_samples, *TAYLOR_COEFS_samples],
             [theta, ca.vertcat(*xs_list), ca.vertcat(*ys_list), J],
-            ["x0", "ds", "init_u", "timestep"]+
+            ["x0", "ds", "init_u", "timestep", "theta_init"]+
             [f"x_init_{i}" for i in range(self.Ns)] +       # initial guess for x
             [f"x_terminal_{i}" for i in range(self.Ns)] +   # terminal constraints for x
             [f"u_sample_{i}" for i in range(self.Ns)] +     # u samples
-            [f"p_sample_{i}" for i in range(self.Ns)] +      # p samples
-            [f"taylor_coefs_{i}" for i in range(self.Ns)],      # p samples
+            [f"p_sample_{i}" for i in range(self.Ns)] +     # p samples
+            [f"taylor_coefs_{i}" for i in range(self.Ns)],  # taylor coefficients
             ["theta_opt", "xs_opt", "ys_opt", "J"]
         )
 
@@ -410,8 +410,8 @@ class RLSMPC(SMPC):
         xs_list = [self.opti.variable(self.nx, self.Np+1) for _ in range(self.Ns)]
         ys_list = [self.opti.variable(self.ny, self.Np) for _ in range(self.Ns)]
         Ps = [self.opti.variable(num_penalties, self.Np) for _ in range(self.Ns)]
+        TAYLOR_COEFS_samples = [self.opti.parameter(self.coef_size) for _ in range(self.Ns)]
 
-        # TAYLOR_COEFS = self.opti.parameter(self.coef_size)
         # A = self.opti.variable(3)
         # self.opti.subject_to(-1<=(A<=1))
 
@@ -450,21 +450,21 @@ class RLSMPC(SMPC):
             jac_y_full = jac_obs_y_samples[i]  # jacobian: shape (3, ny*Np)
             jac_input_full = jac_obs_input_samples[i]  # jacobian: shape (3, nu*Np)
             P = Ps[i]
+            TAYLOR_COEFS = TAYLOR_COEFS_samples[i]
 
             u_prev = init_u
             
             self.opti.subject_to(xs[:,0] == x0)
 
-            # OBS = ca.vertcat(ys[0, -1], timestep+self.Np)
-            # OBS_NORM = self.opti.variable(2)
-            # self.opti.subject_to(
-            #     OBS_NORM == self.normalizeState_casadi(
-            #         OBS,
-            #         np.array([self.x_min[0], 0]),
-            #         np.array([self.x_max[0], self.N])
-            #     )
-            # )
-
+            OBS = ca.vertcat(ys[0, -1], timestep+self.Np)
+            OBS_NORM = self.opti.variable(2)
+            self.opti.subject_to(
+                OBS_NORM == self.normalizeState_casadi(
+                    OBS,
+                    np.array([self.x_min[0], 0]),
+                    np.array([self.x_max[0], self.N])
+                )
+            )
 
             for ll in range(0, self.Np):
                 pk = ps[:, ll]
@@ -503,11 +503,11 @@ class RLSMPC(SMPC):
                     self.opti.subject_to(-self.du_max <= (next_input - uk <= self.du_max))
                 u_prev = uk
 
-            # # Value Function insertion
-            # if self.use_trained_vf:
-            #     print("Using self trained vf")
-            #     J_terminal = self.vf_casadi_approx_func(OBS_NORM, TAYLOR_COEFS)
-            # else:
+            # Value Function insertion
+            if self.use_trained_vf:
+                J_terminal = self.vf_casadi_approx_func(OBS_NORM, TAYLOR_COEFS)
+            else:
+                J_terminal = 0
             #     # pass
             #     print("using QF")
             #     self.opti.subject_to(OBS[0] - ys[0,-1] == 0)
@@ -517,7 +517,7 @@ class RLSMPC(SMPC):
             #     self.opti.subject_to(OBS[8:] - ds[0:,-1] == 0)
             #     self.opti.subject_to(OBS_NORM == self.norm_obs_agent(OBS, self.mean, self.variance))
             #     J_terminal = self.qf_function(ca.vertcat(OBS_NORM, A))  
-            # J -= J_terminal
+            J -= J_terminal
 
 
             # # Constraints on intial input
@@ -532,13 +532,13 @@ class RLSMPC(SMPC):
         self.MPC_func = self.opti.to_function(
             "MPC_func",
             [
-                x0, ds, init_u, timestep, *xs_list, *terminal_xs, *u_samples, *obs_norm_y_samples,
-                *obs_norm_input_samples, *jac_obs_y_samples, *jac_obs_input_samples, *p_samples
+                x0, ds, init_u, timestep, theta, *xs_list, *terminal_xs, *u_samples, *obs_norm_y_samples,
+                *obs_norm_input_samples, *jac_obs_y_samples, *jac_obs_input_samples, *p_samples, *TAYLOR_COEFS_samples
             ],                                                      # Function input
 
             [theta, ca.vertcat(*xs_list), ca.vertcat(*ys_list), J], # output
 
-            ["x0", "ds", "init_u", "timestep"] +                    # Function input
+            ["x0", "ds", "init_u", "timestep", "theta_init"] +      # Function input
             [f"x_init_{i}" for i in range(self.Ns)] +               # xs initial guess
             [f"x_terminal_{i}" for i in range(self.Ns)] +           # terminal constraints for x
             [f"u_sample_{i}" for i in range(self.Ns)] +             # u samples
@@ -546,7 +546,8 @@ class RLSMPC(SMPC):
             [f"obs_norm_input_samples_{i}" for i in range(self.Ns)] + # normalized input samples
             [f"jac_obs_y_sample_{i}" for i in range(self.Ns)] +     # policy jacobian wrt y
             [f"jac_obs_input_sample_{i}" for i in range(self.Ns)] + # policy jacobian wrt input 
-            [f"p_sample_{i}" for i in range(self.Ns)],              # p samples
+            [f"p_sample_{i}" for i in range(self.Ns)] +             # p samples
+            [f"taylor_coefs_{i}" for i in range(self.Ns)],          # taylor coefficients
 
             ["theta_opt", "xs_opt", "ys_opt", "J"]                  # output
         ) 
@@ -908,6 +909,7 @@ class Experiment:
         # logs = self.mpc.unroll_actor(horizon=self.mpc.Np)
         # casadi_vf_approx_param = self.mpc.vf_casadi_model_approx.get_params(np.zeros(2))
         # coef_size = casadi_vf_approx_param.shape[0]
+        theta_init = np.zeros((self.mpc.nu, self.mpc.Np))
 
         for ll in tqdm(range(self.mpc.N)):
             p_samples = self.generate_psamples()
@@ -936,6 +938,7 @@ class Experiment:
                     ds,                     # disturbances
                     self.u[:, ll],          # initial input
                     timestep,               # current timestep
+                    theta_init,             # initial guess for theta
                     *xk_samples,            # initial guess for states
                     *terminal_xs,           # terminal state constraint
                     *uk_samples,            # input samples
@@ -949,14 +952,16 @@ class Experiment:
                     ds,                     # disturbances
                     self.u[:, ll],          # initial input
                     timestep,               # current timestep
-                    *xk_samples,          # initial guess for the states
+                    theta_init,             # initial guess for theta
+                    *xk_samples,            # initial guess for the states
                     *terminal_xs,           # terminal state constraint
                     *uk_samples,            # input samples
-                    *obs_norm_y_samples,  # observation y samples
-                    *obs_norm_input_samples,      # observation input samples
+                    *obs_norm_y_samples,    # observation y samples
+                    *obs_norm_input_samples,        # observation input samples
                     *jacobian_obs_state_samples,    # jacobian evaluated at observation y samples
                     *jacobian_obs_input_samples,    # jacobian evaluated at observation input samples
-                    *p_sample_list                  # parameter samples
+                    *p_sample_list,                  # parameter samples
+                    *taylor_coefficients            # taylor coefficients for value function approximation
                 )
 
             # Since the first RL sample always depends on x0 all the samples input (u) at t=0 will the same;
@@ -977,6 +982,8 @@ class Experiment:
                     ca.mtimes(jac_input_matrix, obs_norm_input_samples[0][:, 0] - obs_norm_u) + theta_opt[:, 0]
 
             self.u[:, ll+1] = us_opt.toarray().ravel()
+
+            theta_init = np.concatenate([theta_opt[:, 1:], ca.reshape(theta_opt[:, -1], (self.mpc.nu, 1))], axis=1)
 
             # Evolve State
             params = parametric_uncertainty(self.p, self.uncertainty_value, self.rng)
