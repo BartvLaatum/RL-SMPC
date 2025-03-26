@@ -54,7 +54,8 @@ def load_data(model_names, mode, project, Ns=[], uncertainty_value=None):
         'smpc': {},
         'rl': {},
         'rlmpc': {},
-        'rlsmpc': {},
+        'rl-zero-smpc': {},
+        'rl-first-smpc': {},
         'smpc-tight': {}
     }
 
@@ -69,16 +70,21 @@ def load_data(model_names, mode, project, Ns=[], uncertainty_value=None):
         # Load MPC and RL-MPC data for each horizon
         for h in horizons:
             rlsmpc_path = f'data/{project}/{mode}/rlsmpc/{model}-zero-order-{h}{uncertainty_suffix}.csv'
+            rl_first_smpc_path = f'data/{project}/{mode}/rlsmpc/{model}-first-order-{h}{uncertainty_suffix}.csv'
 
             if os.path.exists(rlsmpc_path):
-                if h not in data['rlsmpc']:
-                    data['rlsmpc'][h] = {}
-                data['rlsmpc'][h][model] = pd.read_csv(rlsmpc_path)
+                if h not in data['rl-zero-smpc']:
+                    data['rl-zero-smpc'][h] = {}
+                data['rl-zero-smpc'][h][model] = pd.read_csv(rlsmpc_path)
+
+            if os.path.exists(rl_first_smpc_path):
+                if h not in data['rl-first-smpc']:
+                    data['rl-first-smpc'][h] = {}
+                data['rl-first-smpc'][h][model] = pd.read_csv(rl_first_smpc_path)
 
     for h in horizons:
-        mpc_path = f'data/{project}/{mode}/mpc/mpc-tight-rh-{h}{uncertainty_suffix}.csv'
-        smpc_path = f'data/{project}/{mode}/smpc/smpc-tight-rh-{h}-10Ns{uncertainty_suffix}.csv'
-        # smpc_horizon = f'data/{project}/{mode}/smpc/smpc-tight-rh-horizon-weights-{h}-10Ns{uncertainty_suffix}.csv'
+        mpc_path = f'data/{project}/{mode}/mpc/mpc-noise-correction-{h}{uncertainty_suffix}.csv'
+        smpc_path = f'data/{project}/{mode}/smpc/smpc-noise-correction-{h}-10Ns{uncertainty_suffix}.csv'
 
         if h not in data['mpc'] and os.path.exists(mpc_path):
             data['mpc'][h] = pd.read_csv(mpc_path)
