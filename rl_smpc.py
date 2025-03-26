@@ -263,8 +263,8 @@ class RLSMPC(SMPC):
         ys_list = [self.opti.variable(self.ny, self.Np) for _ in range(self.Ns)]
         Ps = [self.opti.variable(num_penalties, self.Np) for _ in range(self.Ns)]
 
-        # TAYLOR_COEFS = self.opti.parameter(self.coef_size)
-        # A = self.opti.variable(3)
+        TAYLOR_COEFS_samples = [self.opti.parameter(self.coef_size) for _ in range(self.Ns)]
+        # A = self.opti.variable(3)         # NOTE these are only necessary when using PPO as value function
         # self.opti.subject_to(-1<=(A<=1))
 
         timestep = self.opti.parameter(1,1)
@@ -297,6 +297,7 @@ class RLSMPC(SMPC):
             ys = ys_list[i]
             ps = p_samples[i]
             us = u_samples[i]
+            TAYLOR_COEFS = TAYLOR_COEFS_samples[i]
             P = Ps[i]
 
             self.opti.subject_to(xs[:,0] == x0)
@@ -310,6 +311,7 @@ class RLSMPC(SMPC):
                     np.array([self.x_max[0], self.N])
                 )
             )
+
             for ll in range(0, self.Np):
                 pk = ps[:, ll]
                 uk = us[:, ll] + theta[:, ll]
@@ -338,10 +340,10 @@ class RLSMPC(SMPC):
                     self.opti.subject_to(-self.du_max <= ((us[:, ll+1] + theta[:, ll+1]) - uk <=self.du_max))
 
             # Value Function insertion
-            # if self.use_trained_vf:
-            #     print("Using self trained vf")
-            #     J_terminal = self.vf_casadi_approx_func(OBS_NORM, TAYLOR_COEFS)
-            # else:
+            if self.use_trained_vf:
+                J_terminal = self.vf_casadi_approx_func(OBS_NORM, TAYLOR_COEFS)
+            else:
+                J_terminal = 0
             #     # pass
             #     print("using QF")
             #     self.opti.subject_to(OBS[0] - ys[0,-1] == 0)
@@ -351,7 +353,7 @@ class RLSMPC(SMPC):
             #     self.opti.subject_to(OBS[8:] - ds[0:,-1] == 0)
             #     self.opti.subject_to(OBS_NORM == self.norm_obs_agent(OBS, self.mean, self.variance))
             #     J_terminal = self.qf_function(ca.vertcat(OBS_NORM, A))  
-            # J -= J_terminal
+            J -= J_terminal
 
             # Constraints on intial state and input
             self.opti.subject_to(-self.du_max <= ((us[:, 0] + theta[:, 0]) - init_u <= self.du_max))  
@@ -363,13 +365,14 @@ class RLSMPC(SMPC):
 
         self.MPC_func = self.opti.to_function(
             "MPC_func",
-            [x0, ds, init_u, timestep, *xs_list, *terminal_xs, *u_samples, *p_samples],
+            [x0, ds, init_u, timestep, *xs_list, *terminal_xs, *u_samples, *p_samples, *TAYLOR_COEFS_samples],
             [theta, ca.vertcat(*xs_list), ca.vertcat(*ys_list), J],
             ["x0", "ds", "init_u", "timestep"]+
             [f"x_init_{i}" for i in range(self.Ns)] +       # initial guess for x
             [f"x_terminal_{i}" for i in range(self.Ns)] +   # terminal constraints for x
             [f"u_sample_{i}" for i in range(self.Ns)] +     # u samples
-            [f"p_sample_{i}" for i in range(self.Ns)],      # p samples
+            [f"p_sample_{i}" for i in range(self.Ns)] +      # p samples
+            [f"taylor_coefs_{i}" for i in range(self.Ns)],      # p samples
             ["theta_opt", "xs_opt", "ys_opt", "J"]
         )
 
@@ -793,7 +796,9 @@ class Experiment:
         Returns:
             Tuple[List[np.ndarray], ...]: A tuple containing lists of samples for each scenario:
                 - xk_samples: List of state trajectories
+                - terminal_xs: List of terminal states
                 - uk_samples: List of input trajectories
+                - end_points: List of the terminal observations
                 - obs_norm_y_samples: List of normalized output observations
                 - obs_norm_input_samples: List of normalized input observations
                 - jacobian_obs_state_samples: List of state Jacobians
@@ -802,6 +807,7 @@ class Experiment:
         xk_samples = []
         terminal_xs = []
         uk_samples = []
+        end_points = []
         obs_norm_y_samples = []
         obs_norm_input_samples = []
         jacobian_obs_state_samples = []
@@ -821,6 +827,9 @@ class Experiment:
             obs_norm = np.vstack(log["obs_norm"])
             obs_norm_y_samples.append(obs_norm[:self.mpc.ny, :-1])
             obs_norm_input_samples.append(obs_norm[self.mpc.ny:self.mpc.ny+self.mpc.nu, :-1])
+
+            # extract the observation of the terminal observation:
+            end_points.append(log["obs"][:, -1])
 
             # Extract components for Jacobian computation
             y = log["obs_norm"][:4]
@@ -846,8 +855,38 @@ class Experiment:
             jacobian_obs_state_samples.append(np.hstack(jacobian_obs_state))
             jacobian_obs_input_samples.append(np.hstack(jacobian_obs_input))
 
-        return (xk_samples, uk_samples, terminal_xs, obs_norm_y_samples, obs_norm_input_samples, 
+        return (xk_samples, terminal_xs, uk_samples, end_points, obs_norm_y_samples, obs_norm_input_samples, 
                 jacobian_obs_state_samples, jacobian_obs_input_samples)
+
+    def get_taylor_coefficients(self, end_points):
+        """
+        Extracts normalized terminal points from observations and computes Taylor coefficients.
+        
+        Args:
+            end_points: List of Ns observations of shape (12,1)
+        
+        Returns:
+            List of Taylor coefficients for each sample
+        """
+        taylor_coefficients = []
+        
+        for obs in end_points:
+            # Extract relevant state information
+            term_point = np.array([obs[0], obs[7]])
+            
+            # Normalize the state
+            norm_term_point = self.mpc.normalizeState_casadi(
+                term_point,
+                np.array([self.mpc.y_min[0], 0]),
+                np.array([self.mpc.y_max[0], self.mpc.N])
+            )
+            
+            # Get Taylor coefficients for the value function approximation
+            coefs = self.mpc.vf_casadi_model_approx.get_params(norm_term_point.toarray().ravel())
+            taylor_coefficients.append(coefs)
+        
+        return taylor_coefficients
+
 
     def solve_nsmpc(self, order) -> None:
         """Solve the nonlinear MPC problem.
@@ -867,8 +906,8 @@ class Experiment:
         obs, _ = self.mpc.eval_env.reset()
 
         # logs = self.mpc.unroll_actor(horizon=self.mpc.Np)
-        casadi_vf_approx_param = self.mpc.vf_casadi_model_approx.get_params(np.zeros(2))
-        coef_size = casadi_vf_approx_param.shape[0]
+        # casadi_vf_approx_param = self.mpc.vf_casadi_model_approx.get_params(np.zeros(2))
+        # coef_size = casadi_vf_approx_param.shape[0]
 
         for ll in tqdm(range(self.mpc.N)):
             p_samples = self.generate_psamples()
@@ -876,9 +915,12 @@ class Experiment:
                 self.mpc.eval_env.set_env_state(self.x[:, ll], self.x[:,ll], self.u[:,ll], ll)
             else:
                 self.mpc.eval_env.set_env_state(self.x[:, ll], self.x[:,ll-1], self.u[:,ll], ll)
-            (xk_samples, uk_samples, terminal_xs, obs_norm_y_samples, obs_norm_input_samples, 
+            (xk_samples, terminal_xs, uk_samples, end_points, obs_norm_y_samples, obs_norm_input_samples, 
                 jacobian_obs_state_samples, jacobian_obs_input_samples) = \
                 self.generate_samples(p_samples)
+
+            # Get Taylor coefficients for all samples
+            taylor_coefficients = self.get_taylor_coefficients(end_points)
 
             # Convert inputs to CasADi DM format; NOTE is this required??
             ds = self.d[:, ll:ll+self.mpc.Np+1]
@@ -897,7 +939,8 @@ class Experiment:
                     *xk_samples,            # initial guess for states
                     *terminal_xs,           # terminal state constraint
                     *uk_samples,            # input samples
-                    *p_sample_list          # parameter samples
+                    *p_sample_list,          # parameter samples
+                    *taylor_coefficients    # taylor coefficients for value function approximation
                 )
 
             elif order == "first":
