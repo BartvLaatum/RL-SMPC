@@ -212,12 +212,10 @@ class RLSMPC(SMPC):
 
         x_log.append(self.eval_env.get_numpy_state().ravel())
 
-        # Freeze environment 
+        # Freeze curren state of the environment 
         if freeze:
-            self.eval_env.freeze() # freeze variables
+            self.eval_env.freeze()
 
-        # print(self.eval_env.timestep)
-        # print(self.eval_env.x)
 
         done = False
         for i in range (0, horizon):
@@ -242,11 +240,11 @@ class RLSMPC(SMPC):
             self.eval_env.unfreeze()
 
         # Store data
-        log["obs"] = np.vstack(obs_log).transpose()
+        log["obs"] = np.vstack(obs_log).T
 
-        log["x"] = np.vstack(x_log).transpose()
-        log["u"] = np.vstack(u_log).transpose()
-        log["obs_norm"] = np.vstack(obs_norm_log).transpose()
+        log["x"] = np.vstack(x_log).T
+        log["u"] = np.vstack(u_log).T
+        log["obs_norm"] = np.vstack(obs_norm_log).T
         log["total_reward"] = total_cost
         log["reward_log"] = np.array(rewards_log)
 
@@ -279,11 +277,11 @@ class RLSMPC(SMPC):
         ds = self.opti.parameter(self.nd, self.Np+1) # Disturbance Variables
 
         # Terminal constraints
-        # terminal_xs = [self.opti.parameter(self.nx, 1) for _ in range(self.Ns)]
+        terminal_xs = [self.opti.parameter(self.nx, 1) for _ in range(self.Ns)]
         # # terminal_u = self.opti.parameter(self.nu, 1)
 
-        # for i, xs in enumerate(xs_list):
-            # self.opti.subject_to(0.95*terminal_xs[i] <= (xs[:,-1]  <= 1.05*terminal_xs[i]))
+        for i, xs in enumerate(xs_list):
+            self.opti.subject_to(0.95*terminal_xs[i] <= (xs[:,-1]  <= 1.05*terminal_xs[i]))
 
         # I GUESS WE DON'T HAVE TO SET THEM EXPLICITLY, SINCE THE OPTI TO FUNCTION WILL DO THAT FOR US..
         # self.opti.set_initial(self.us, self.rl_guess_us)
@@ -365,11 +363,11 @@ class RLSMPC(SMPC):
 
         self.MPC_func = self.opti.to_function(
             "MPC_func",
-            [x0, ds, init_u, timestep, *xs_list, *u_samples, *p_samples],
+            [x0, ds, init_u, timestep, *xs_list, *terminal_xs, *u_samples, *p_samples],
             [theta, ca.vertcat(*xs_list), ca.vertcat(*ys_list), J],
             ["x0", "ds", "init_u", "timestep"]+
             [f"x_init_{i}" for i in range(self.Ns)] +       # initial guess for x
-            # [f"x_terminal_{i}" for i in range(self.Ns)] +   # terminal constraints for x
+            [f"x_terminal_{i}" for i in range(self.Ns)] +   # terminal constraints for x
             [f"u_sample_{i}" for i in range(self.Ns)] +     # u samples
             [f"p_sample_{i}" for i in range(self.Ns)],      # p samples
             ["theta_opt", "xs_opt", "ys_opt", "J"]
@@ -404,9 +402,8 @@ class RLSMPC(SMPC):
         self.opti = ca.Opti()
         num_penalties = 6
 
-        # Decision Variables (Control inputs, slack variables, states, outputs)
-        # us = self.opti.variable(self.nu, self.Np)  # Control inputs (nu x Np)
-        theta = self.opti.variable(self.nu, self.Np)  # Control inputs (nu x Np)
+        # Decision Variables (Theta, slack variables, states, outputs)
+        theta = self.opti.variable(self.nu, self.Np)  # theta (nu x Np)
         xs_list = [self.opti.variable(self.nx, self.Np+1) for _ in range(self.Ns)]
         ys_list = [self.opti.variable(self.ny, self.Np) for _ in range(self.Ns)]
         Ps = [self.opti.variable(num_penalties, self.Np) for _ in range(self.Ns)]
@@ -415,6 +412,7 @@ class RLSMPC(SMPC):
         # A = self.opti.variable(3)
         # self.opti.subject_to(-1<=(A<=1))
 
+        # Parameters
         timestep = self.opti.parameter(1,1)
         u_samples = [self.opti.parameter(self.nu, self.Np) for _ in range(self.Ns)]
         p_samples = [self.opti.parameter(p.shape[0], self.Np) for _ in range(self.Ns)]
@@ -429,19 +427,13 @@ class RLSMPC(SMPC):
         ds = self.opti.parameter(self.nd, self.Np+1) # Disturbance Variables
 
         # Terminal constraints
-        # terminal_x = self.opti.parameter(self.nx, 1)
+        terminal_xs = [self.opti.parameter(self.nx, 1) for _ in range(self.Ns)]
         # terminal_u = self.opti.parameter(self.nu, 1)
 
-        # for i, xs in enumerate(self.xs_list):
-            # self.opti.set_initial(xs, self.rl_guess_xs)
-            # self.opti.subject_to(0.95*terminal_x <= (xs[:,-1]  <= 1.05*terminal_x))
+        for i, xs in enumerate(xs_list):
+            self.opti.subject_to(0.95*terminal_xs[i] <= (xs[:,-1]  <= 1.05*terminal_xs[i]))
 
-        # I GUESS WE DON'T HAVE TO SET THEM EXPLICITLY, SINCE THE OPTI TO FUNCTION WILL DO THAT FOR US..
-        # self.opti.set_initial(self.us, self.rl_guess_us)
-
-        # self.opti.subject_to(0.95*terminal_u <= (self.us[:,-1]  <= 1.05*terminal_u))
-
-        # Define cost function
+        # Initialise cost function
         J = 0
 
         # Set Constraints and Cost Function
@@ -459,7 +451,6 @@ class RLSMPC(SMPC):
             u_prev = init_u
             
             self.opti.subject_to(xs[:,0] == x0)
-
 
             # OBS = ca.vertcat(ys[0, -1], timestep+self.Np)
             # OBS_NORM = self.opti.variable(2)
@@ -535,30 +526,26 @@ class RLSMPC(SMPC):
         self.opti.minimize(J)
         self.opti.solver('ipopt', self.nlp_opts)
 
-    # Create the parametric solution function
-        # self.MPC_func = self.opti.to_function(
-        #     "MPC_func",
-        #     [x0, ds, init_u, timestep, terminal_x, terminal_u, xs, us, TAYLOR_COEFS],
-        #     [self.us, ca.vertcat(*self.xs_list), J, J_terminal, OBS_NORM],
-        #     ["x0", "ds", "init_u", "timestep", "terminal_x", "terminal_u", "initial_X", "initial_U", "taylor_coefs"],
-        #     ["us_opt", "xs_opt", "J", "J0", "terminal_obs"]
-        # )
-
         self.MPC_func = self.opti.to_function(
             "MPC_func",
-            [x0, ds, init_u, timestep, *xs_list, *u_samples, *obs_norm_y_samples, *obs_norm_input_samples,
-             *jac_obs_y_samples, *jac_obs_input_samples, *p_samples],
+            [
+                x0, ds, init_u, timestep, *xs_list, *terminal_xs, *u_samples, *obs_norm_y_samples,
+                *obs_norm_input_samples, *jac_obs_y_samples, *jac_obs_input_samples, *p_samples
+            ],                                                      # Function input
+
             [theta, ca.vertcat(*xs_list), ca.vertcat(*ys_list), J], # output
-            ["x0", "ds", "init_u", "timestep"]+                     # input
-            [f"x_init_{i}" for i in range(self.Ns)] +             # x initial guess
+
+            ["x0", "ds", "init_u", "timestep"] +                    # Function input
+            [f"x_init_{i}" for i in range(self.Ns)] +               # xs initial guess
+            [f"x_terminal_{i}" for i in range(self.Ns)] +           # terminal constraints for x
             [f"u_sample_{i}" for i in range(self.Ns)] +             # u samples
-            [f"obs_norm_y_samples_{i}" for i in range(self.Ns)] +     # normalized y samples
+            [f"obs_norm_y_samples_{i}" for i in range(self.Ns)] +   # normalized y samples
             [f"obs_norm_input_samples_{i}" for i in range(self.Ns)] + # normalized input samples
             [f"jac_obs_y_sample_{i}" for i in range(self.Ns)] +     # policy jacobian wrt y
             [f"jac_obs_input_sample_{i}" for i in range(self.Ns)] + # policy jacobian wrt input 
             [f"p_sample_{i}" for i in range(self.Ns)],              # p samples
 
-            ["theta_opt", "xs_opt", "ys_opt", "J"]          # output
+            ["theta_opt", "xs_opt", "ys_opt", "J"]                  # output
         ) 
 
 
@@ -813,6 +800,7 @@ class Experiment:
                 - jacobian_obs_input_samples: List of input Jacobians
         """
         xk_samples = []
+        terminal_xs = []
         uk_samples = []
         obs_norm_y_samples = []
         obs_norm_input_samples = []
@@ -826,6 +814,8 @@ class Experiment:
             # Store input and state trajectories
             uk_samples.append(np.vstack(log["u"]))
             xk_samples.append(np.vstack(log["x"]))
+
+            terminal_xs.append(log["x"][:, -1])
 
             # Extract normalized observations
             obs_norm = np.vstack(log["obs_norm"])
@@ -856,7 +846,7 @@ class Experiment:
             jacobian_obs_state_samples.append(np.hstack(jacobian_obs_state))
             jacobian_obs_input_samples.append(np.hstack(jacobian_obs_input))
 
-        return (xk_samples, uk_samples, obs_norm_y_samples, obs_norm_input_samples, 
+        return (xk_samples, uk_samples, terminal_xs, obs_norm_y_samples, obs_norm_input_samples, 
                 jacobian_obs_state_samples, jacobian_obs_input_samples)
 
     def solve_nsmpc(self, order) -> None:
@@ -886,16 +876,13 @@ class Experiment:
                 self.mpc.eval_env.set_env_state(self.x[:, ll], self.x[:,ll], self.u[:,ll], ll)
             else:
                 self.mpc.eval_env.set_env_state(self.x[:, ll], self.x[:,ll-1], self.u[:,ll], ll)
-            (xk_samples, uk_samples, obs_norm_y_samples, obs_norm_input_samples, 
+            (xk_samples, uk_samples, terminal_xs, obs_norm_y_samples, obs_norm_input_samples, 
                 jacobian_obs_state_samples, jacobian_obs_input_samples) = \
                 self.generate_samples(p_samples)
 
             # Convert inputs to CasADi DM format; NOTE is this required??
             ds = self.d[:, ll:ll+self.mpc.Np+1]
             timestep = [ll]
-
-            # Convert samples to CasADi DM format
-            # x_init_list = [xk_samples[i] for i in range(self.mpc.Ns)]
 
             # we have to transpose p_samples since MPC_func expects matrix of shape (n_params, Np)
             p_sample_list = [p_samples[i].T for i in range(self.mpc.Ns)]
@@ -908,6 +895,7 @@ class Experiment:
                     self.u[:, ll],          # initial input
                     timestep,               # current timestep
                     *xk_samples,            # initial guess for states
+                    *terminal_xs,           # terminal state constraint
                     *uk_samples,            # input samples
                     *p_sample_list          # parameter samples
                 )
@@ -919,6 +907,7 @@ class Experiment:
                     self.u[:, ll],          # initial input
                     timestep,               # current timestep
                     *xk_samples,          # initial guess for the states
+                    *terminal_xs,           # terminal state constraint
                     *uk_samples,            # input samples
                     *obs_norm_y_samples,  # observation y samples
                     *obs_norm_input_samples,      # observation input samples
