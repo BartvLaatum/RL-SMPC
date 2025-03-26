@@ -1,6 +1,6 @@
 import os
 import argparse
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Tuple
 from tqdm import tqdm
 
 import numpy as np
@@ -97,6 +97,7 @@ class RLSMPC(SMPC):
         # Creating casadi verions of the value functions
         vf_casadi_model = l4c.L4CasADi(self.trained_vf, device="cpu", name=f"vf_{run}")
         obs_sym_vf = ca.MX.sym("obs", 2, 1)
+
         # TODO: I need to transpose the observation to match the shape of the trained value function
         # since observation: (batch_size, N_features) and trained value function: (N_features, output_size)
         # vf_out = vf_casadi_model(obs_sym_vf)
@@ -112,29 +113,79 @@ class RLSMPC(SMPC):
         qf_casadi_model = l4c.L4CasADi(qvalue_fn(self.model.critic.q_networks[0]), device="cpu", name=f"qf_{run}") # Q: can we use "cuda" device? 
         obs_and_action_sym = ca.MX.sym("obs_and_a", 15, 1)
         qf_out = qf_casadi_model(obs_and_action_sym.T)
+        # THIS ONE IS ONLY USED WHEN WE USE Q-VALUE FUNCTION RATHER THAN THE VF-FUNCTION (ie. when PPO is used)
         self.qf_function = ca.Function("qf", [obs_and_action_sym], [qf_out])
 
-        # Creating casadi version of the actor
+        # Creating casadi version of the actor NOTE: Not really necessary since unused during optimization
         actor_casadi_model = l4c.L4CasADi(actor_fn(self.model.actor.latent_pi, self.model.actor.mu), device="cpu", name=f"actor_{run}")
-        obs_sym = ca.MX.sym("obs", 12, 1)
+        obs_sym = ca.MX.sym("obs_sym", 12, 1)
         action_out = actor_casadi_model(obs_sym.T)
-        self.actor_function = ca.Function("action", [obs_sym], [action_out])
+        self.actor_function = ca.Function(
+            "action",
+            [obs_sym],
+            [action_out]
+        )
 
-        obs, _ = self.eval_env.reset()
+        # Define the Jacobian of action_out wrt first 4 obs components (the system output variables)
+        y_sym = ca.MX.sym("y_sym", 4, 1)
+        u_sym = ca.MX.sym("u_sym", 3, 1)
+        timestep = ca.MX.sym("timestep", 1)
+        d_sym = ca.MX.sym("d_sym", 4, 1)
 
-        logs = self.unroll_actor(horizon=self.Np)
+        obs_sym_chain_rule = self.h(y_sym, u_sym, timestep, d_sym)
 
-        self.rl_guess_xs = logs["x"]
-        self.rl_guess_us = logs["u"]
+        # Actor output
+        action_out_chain_rule = actor_casadi_model(obs_sym_chain_rule.T)
+
+        # Build the action Function with *all* relevant inputs
+        self.actor_function_chain_rule = ca.Function(
+            "action",
+            [y_sym, u_sym, timestep, d_sym],
+            [action_out_chain_rule]
+        )
+
+        # Now, for the Jacobian wrt y_sym:
+        J_x = ca.jacobian(action_out_chain_rule, y_sym)
+
+        self.jac_actor_wrt_state = ca.Function(
+            "jac_actor_wrt_state",
+            [y_sym, u_sym, timestep, d_sym],
+            [J_x]
+        )
+
+        J_u = ca.jacobian(action_out_chain_rule, u_sym)
+        self.jac_actor_wrt_input = ca.Function(
+            "jac_actor_wrt_state",
+            [y_sym, u_sym, timestep, d_sym],
+            [J_u]
+        )
+        
+        # self.jac_actor_wrt_state = ca.Function("jac_actor_wrt_input", [u_sym], [J_u])
+
+        # x_sym = ca.MX.sym("x", 4, 1)
+        # action_out = actor_casadi_model(obs_sym)
+        # J_state = ca.jacobian(action_out, x_sym)  # 3×4
+
+        # obs, _ = self.eval_env.reset()
+        # logs = self.unroll_actor(horizon=self.Np)
+        # self.rl_guess_xs = logs["x"]
+        # self.rl_guess_us = logs["u"]
+
         casadi_vf_approx_param = self.vf_casadi_model_approx.get_params(np.zeros(2))
         self.coef_size = casadi_vf_approx_param.shape[0]
 
-    def unroll_actor(self, horizon=1, freeze=True):
+    def h(self, x, u, d, timestep):
+        return ca.vertcat(x, u, timestep, d)
+        
+
+    def unroll_actor(self, p_i_samples=None, horizon=1, freeze=True,):
         """
         Unrolls the actor function over the environment for a specified number of steps.
         Parameters:
-            arg_actor_function (function): Actor function to determine actions based on normalized observations.
+            p_i_samples (np.ndarray): One sampled trajectory (i) of the parameteric uncertainty.
             freeze (bool): If True, freezes the environment"s state during the unrolling process. Default is True.
+            horizon (int): Number of steps to unroll the actor function. Default is 1.
+
         Returns:
         dict: A dictionary containing logs of observations, states, actions, normalized observations, total reward, and reward log.
             - "obs" (numpy.ndarray): Transposed array of logged observations.
@@ -144,46 +195,48 @@ class RLSMPC(SMPC):
             - "total_reward" (float): Total accumulated reward.
             - "reward_log" (numpy.ndarray): Array of logged rewards.
         """
-
-        # Import
-
         # Define empty log variables
         log = {
             "obs":[],
             "x":[],
             "u":[],
         }
+
         obs_log, obs_norm_log, x_log, u_log = [],[],[],[]
         total_cost = 0
         rewards_log = []
-        
-        
+
         obs = self.eval_env._get_obs()
-        # obs[0] *= 1e-3
         obs_log.append(obs)
+        obs_norm_log.append(self.norm_obs_agent(obs, self.mean, self.variance).toarray().ravel())
+
         x_log.append(self.eval_env.get_numpy_state().ravel())
 
         # Freeze environment 
         if freeze:
             self.eval_env.freeze() # freeze variables
 
+        # print(self.eval_env.timestep)
+        # print(self.eval_env.x)
+
         done = False
         for i in range (0, horizon):
-
+            pk = p_i_samples[i] if p_i_samples is not None else None
             # obs_norm = norm_obs(obs).toarray().squeeze(-1)
+
             obs_norm = self.norm_obs_agent(obs, self.mean, self.variance).toarray().ravel()
+
             action = self.actor_function(obs_norm).toarray().ravel()
-            obs, reward, done, _,info = self.eval_env.step(action)
-            # obs[0] *= 1e-3
+            obs, reward, done, _,info = self.eval_env.step(action, pk)
             x = self.eval_env.get_state()
-            
+
             total_cost += reward
             rewards_log.append(reward)
             obs_log.append(obs)
             obs_norm_log.append(self.norm_obs_agent(obs, self.mean, self.variance).toarray().ravel())
             x_log.append(x)
             u_log.append(obs[4:7])
-            
+
         # Unfreeze environment
         if freeze:
             self.eval_env.unfreeze()
@@ -199,57 +252,58 @@ class RLSMPC(SMPC):
 
         return log
 
-    def define_nlp(self, p):
+    def define_zero_order_snlp(self, p: np.ndarray) -> None:
+        """
+        """
         self.opti = ca.Opti()
         num_penalties = 6
 
         # Decision Variables (Control inputs, slack variables, states, outputs)
-        self.us = self.opti.variable(self.nu, self.Np)  # Control inputs (nu x Np)
-        # self.P = self.opti.variable(num_penalties, self.Np)
-        # self.xs = self.opti.variable(self.nx, self.Np+1)
-        # self.ys = self.opti.variable(self.ny, self.Np)
-        self.xs_list = [self.opti.variable(self.nx, self.Np+1) for _ in range(self.Ns)]
-        self.ys_list = [self.opti.variable(self.ny, self.Np) for _ in range(self.Ns)]
-        self.Ps     = [self.opti.variable(num_penalties, self.Np) for _ in range(self.Ns)]
+        # us = self.opti.variable(self.nu, self.Np)  # Control inputs (nu x Np)
+        theta = self.opti.variable(self.nu, self.Np)  # Control inputs (nu x Np)
+        xs_list = [self.opti.variable(self.nx, self.Np+1) for _ in range(self.Ns)]
+        ys_list = [self.opti.variable(self.ny, self.Np) for _ in range(self.Ns)]
+        Ps = [self.opti.variable(num_penalties, self.Np) for _ in range(self.Ns)]
 
+        # TAYLOR_COEFS = self.opti.parameter(self.coef_size)
+        # A = self.opti.variable(3)
+        # self.opti.subject_to(-1<=(A<=1))
 
-        # TODO: What are these three lines of code for?
-        TAYLOR_COEFS = self.opti.parameter(self.coef_size)
-        A = self.opti.variable(3)
-        self.opti.subject_to(-1<=(A<=1))
-
-        time_step = self.opti.parameter(1,1)
+        timestep = self.opti.parameter(1,1)
+        u_samples = [self.opti.parameter(self.nu, self.Np) for _ in range(self.Ns)]
+        p_samples = [self.opti.parameter(p.shape[0], self.Np) for _ in range(self.Ns)]
 
         # Initial parameter values
         x0 = self.opti.parameter(self.nx, 1)  # Initial state
         init_u = self.opti.parameter(self.nu, 1)  # Initial control input
         ds = self.opti.parameter(self.nd, self.Np+1) # Disturbance Variables
+
         # Terminal constraints
-        terminal_x = self.opti.parameter(self.nx, 1)
-        terminal_u = self.opti.parameter(self.nu, 1)
+        # terminal_xs = [self.opti.parameter(self.nx, 1) for _ in range(self.Ns)]
+        # # terminal_u = self.opti.parameter(self.nu, 1)
 
-        for i, xs in enumerate(self.xs_list):
-            self.opti.set_initial(xs, self.rl_guess_xs)
-            self.opti.subject_to(0.95*terminal_x <= (xs[:,-1]  <= 1.05*terminal_x))
-        
+        # for i, xs in enumerate(xs_list):
+            # self.opti.subject_to(0.95*terminal_xs[i] <= (xs[:,-1]  <= 1.05*terminal_xs[i]))
 
-        self.opti.set_initial(self.us, self.rl_guess_us)
+        # I GUESS WE DON'T HAVE TO SET THEM EXPLICITLY, SINCE THE OPTI TO FUNCTION WILL DO THAT FOR US..
+        # self.opti.set_initial(self.us, self.rl_guess_us)
 
-        self.opti.subject_to(0.95*terminal_u <= (self.us[:,-1]  <= 1.05*terminal_u))
+        # self.opti.subject_to(0.95*terminal_u <= (self.us[:,-1]  <= 1.05*terminal_u))
 
         # Define cost function
         J = 0
 
         # Set Constraints and Cost Function
         for i in range(self.Ns):
-            xs = self.xs_list[i]
-            ys = self.ys_list[i]
-            P = self.Ps[i]
-            
+            xs = xs_list[i]
+            ys = ys_list[i]
+            ps = p_samples[i]
+            us = u_samples[i]
+            P = Ps[i]
+
             self.opti.subject_to(xs[:,0] == x0)
             
-            OBS = ca.vertcat(ys[0, -1], time_step+self.Np)
-            OBS*= 1e-3
+            OBS = ca.vertcat(ys[0, -1], timestep+self.Np)
             OBS_NORM = self.opti.variable(2)
             self.opti.subject_to(
                 OBS_NORM == self.normalizeState_casadi(
@@ -259,12 +313,13 @@ class RLSMPC(SMPC):
                 )
             )
             for ll in range(0, self.Np):
+                pk = ps[:, ll]
+                uk = us[:, ll] + theta[:, ll]
 
-                params = parametric_uncertainty(p, self.uncertainty_value, self.rng)
                 # System dynamics and input constraints
-                self.opti.subject_to(xs[:, ll+1] == self.F(xs[:, ll], self.us[:, ll], ds[:, ll], params))
+                self.opti.subject_to(xs[:, ll+1] == self.F(xs[:, ll], uk, ds[:, ll], pk))
                 self.opti.subject_to(ys[:, ll] == self.g(xs[:, ll+1]))
-                self.opti.subject_to(self.u_min <= (self.us[:, ll] <= self.u_max))
+                self.opti.subject_to(self.u_min <= (uk <= self.u_max))
 
                 # Linear penalty functions
                 self.opti.subject_to(P[:, ll] >= 0)
@@ -273,49 +328,239 @@ class RLSMPC(SMPC):
                 self.opti.subject_to(P[2, ll] >= self.lb_pen_w[0,1] * (self.y_min[2] - ys[2, ll]))
                 self.opti.subject_to(P[3, ll] >= self.ub_pen_w[0,1] * (ys[2, ll] - self.y_max[2]))
                 self.opti.subject_to(P[4, ll] >= self.lb_pen_w[0,2] * (self.y_min[3] - ys[3, ll]))
-                self.opti.subject_to(P[5, ll] >= self.ub_pen_w[0,2] * (ys[3, ll] - self.y_max[3]))
+                self.opti.subject_to(P[5, ll] >= self.ub_pen_w[0,2] * (ys[3, ll] - (self.y_max[3]-2.0)))
 
                 # COST FUNCTION WITH PENALTIES
                 delta_dw = xs[0, ll+1] - xs[0, ll]
-                J -= compute_economic_reward(delta_dw, p, self.dt, self.us[:,ll])
+                J -= compute_economic_reward(delta_dw, p, self.dt, uk)
                 J += (P[0, ll]+ P[1, ll]+P[2, ll]+P[3, ll]+P[4, ll]+P[5, ll])
 
                 # Input rate constraint
                 if ll < self.Np-1:
-                    self.opti.subject_to(-self.du_max<=(self.us[:,ll+1] - self.us[:,ll]<=self.du_max))
+                    self.opti.subject_to(-self.du_max <= ((us[:, ll+1] + theta[:, ll+1]) - uk <=self.du_max))
 
             # Value Function insertion
-            if self.use_trained_vf:
-                print("Using self trained vf")
-                J_terminal = self.vf_casadi_approx_func(OBS_NORM, TAYLOR_COEFS)
-            else:
-                # pass
-                print("using QF")
-                self.opti.subject_to(OBS[0] - ys[0,-1] == 0)
-                self.opti.subject_to(OBS[1:4] - ys[1:,-1] == 0)
-                self.opti.subject_to(OBS[4:7] - self.us[:,-1] == 0)
-                self.opti.subject_to(OBS[7] - time_step + self.Np == 0)
-                self.opti.subject_to(OBS[8:] - ds[0:,-1] == 0)
-                self.opti.subject_to(OBS_NORM == self.norm_obs_agent(OBS, self.mean, self.variance))
-                J_terminal = self.qf_function(ca.vertcat(OBS_NORM, A))  
-            J -= J_terminal
+            # if self.use_trained_vf:
+            #     print("Using self trained vf")
+            #     J_terminal = self.vf_casadi_approx_func(OBS_NORM, TAYLOR_COEFS)
+            # else:
+            #     # pass
+            #     print("using QF")
+            #     self.opti.subject_to(OBS[0] - ys[0,-1] == 0)
+            #     self.opti.subject_to(OBS[1:4] - ys[1:,-1] == 0)
+            #     self.opti.subject_to(OBS[4:7] - us[:,-1] == 0)
+            #     self.opti.subject_to(OBS[7] - timestep + self.Np == 0)
+            #     self.opti.subject_to(OBS[8:] - ds[0:,-1] == 0)
+            #     self.opti.subject_to(OBS_NORM == self.norm_obs_agent(OBS, self.mean, self.variance))
+            #     J_terminal = self.qf_function(ca.vertcat(OBS_NORM, A))  
+            # J -= J_terminal
+
+            # Constraints on intial state and input
+            self.opti.subject_to(-self.du_max <= ((us[:, 0] + theta[:, 0]) - init_u <= self.du_max))  
+
         J = J / self.Ns
 
-        # Constraints on intial state and input
-        self.opti.subject_to(-self.du_max <= (self.us[:,0] - init_u <= self.du_max))  
+        self.opti.minimize(J)
+        self.opti.solver('ipopt', self.nlp_opts)
+
+        self.MPC_func = self.opti.to_function(
+            "MPC_func",
+            [x0, ds, init_u, timestep, *xs_list, *u_samples, *p_samples],
+            [theta, ca.vertcat(*xs_list), ca.vertcat(*ys_list), J],
+            ["x0", "ds", "init_u", "timestep"]+
+            [f"x_init_{i}" for i in range(self.Ns)] +       # initial guess for x
+            # [f"x_terminal_{i}" for i in range(self.Ns)] +   # terminal constraints for x
+            [f"u_sample_{i}" for i in range(self.Ns)] +     # u samples
+            [f"p_sample_{i}" for i in range(self.Ns)],      # p samples
+            ["theta_opt", "xs_opt", "ys_opt", "J"]
+        )
+
+    def compute_control_input(self, xs, ll, us, os_y, os_u, theta, jac_y_full, jac_input_full, u_prev):
+        # Get the full observation vector from the state
+        obs_y = self.g(xs[:, ll])
+        obs_norm_y = self.opti.variable(self.ny)
+        self.opti.subject_to(
+            obs_norm_y == self.norm_obs_agent(obs_y, self.mean[:self.ny], self.variance[:self.ny])
+        )
+
+        obs_norm_u = self.opti.variable(self.nu)
+        self.opti.subject_to(
+            obs_norm_u == self.norm_obs_agent(u_prev, self.mean[self.ny:self.ny+self.nu], self.variance[self.ny:self.ny+self.nu])
+        )
+
+        # Make sure the jacobian matrix has the right dimensions
+        jac_y_matrix = jac_y_full[:, self.ny*ll:self.ny*(ll+1)]
+        jac_input_matrix = jac_input_full[:, self.nu*ll:self.nu*(ll+1)]
+
+        # Compute control input
+        uk = us[:, ll] + ca.mtimes(jac_y_matrix, (os_y[:, ll] - obs_norm_y)) + \
+            ca.mtimes(jac_input_matrix, os_u[:, ll] - obs_norm_u) + theta[:,ll]
+        
+        return uk
+
+    def define_first_order_snlp(self, p: np.ndarray) -> None:
+        """
+        """
+        self.opti = ca.Opti()
+        num_penalties = 6
+
+        # Decision Variables (Control inputs, slack variables, states, outputs)
+        # us = self.opti.variable(self.nu, self.Np)  # Control inputs (nu x Np)
+        theta = self.opti.variable(self.nu, self.Np)  # Control inputs (nu x Np)
+        xs_list = [self.opti.variable(self.nx, self.Np+1) for _ in range(self.Ns)]
+        ys_list = [self.opti.variable(self.ny, self.Np) for _ in range(self.Ns)]
+        Ps = [self.opti.variable(num_penalties, self.Np) for _ in range(self.Ns)]
+
+        # TAYLOR_COEFS = self.opti.parameter(self.coef_size)
+        # A = self.opti.variable(3)
+        # self.opti.subject_to(-1<=(A<=1))
+
+        timestep = self.opti.parameter(1,1)
+        u_samples = [self.opti.parameter(self.nu, self.Np) for _ in range(self.Ns)]
+        p_samples = [self.opti.parameter(p.shape[0], self.Np) for _ in range(self.Ns)]
+        obs_norm_y_samples = [self.opti.parameter(self.ny, self.Np) for _ in range(self.Ns)]
+        obs_norm_input_samples = [self.opti.parameter(self.nu, self.Np) for _ in range(self.Ns)]
+        jac_obs_y_samples = [self.opti.parameter(self.nu, self.ny * self.Np) for _ in range(self.Ns)]
+        jac_obs_input_samples = [self.opti.parameter(self.nu, self.nu * self.Np) for _ in range(self.Ns)]
+
+        # Initial parameter values
+        x0 = self.opti.parameter(self.nx, 1)  # Initial state
+        init_u = self.opti.parameter(self.nu, 1)  # Initial control input
+        ds = self.opti.parameter(self.nd, self.Np+1) # Disturbance Variables
+
+        # Terminal constraints
+        # terminal_x = self.opti.parameter(self.nx, 1)
+        # terminal_u = self.opti.parameter(self.nu, 1)
+
+        # for i, xs in enumerate(self.xs_list):
+            # self.opti.set_initial(xs, self.rl_guess_xs)
+            # self.opti.subject_to(0.95*terminal_x <= (xs[:,-1]  <= 1.05*terminal_x))
+
+        # I GUESS WE DON'T HAVE TO SET THEM EXPLICITLY, SINCE THE OPTI TO FUNCTION WILL DO THAT FOR US..
+        # self.opti.set_initial(self.us, self.rl_guess_us)
+
+        # self.opti.subject_to(0.95*terminal_u <= (self.us[:,-1]  <= 1.05*terminal_u))
+
+        # Define cost function
+        J = 0
+
+        # Set Constraints and Cost Function
+        for i in range(self.Ns):
+            xs = xs_list[i]
+            ys = ys_list[i]
+            ps = p_samples[i]
+            us = u_samples[i]
+            os_y = obs_norm_y_samples[i]
+            os_u = obs_norm_input_samples[i]
+            jac_y_full = jac_obs_y_samples[i]  # jacobian: shape (3, ny*Np)
+            jac_input_full = jac_obs_input_samples[i]  # jacobian: shape (3, nu*Np)
+            P = Ps[i]
+
+            u_prev = init_u
+            
+            self.opti.subject_to(xs[:,0] == x0)
+
+
+            # OBS = ca.vertcat(ys[0, -1], timestep+self.Np)
+            # OBS_NORM = self.opti.variable(2)
+            # self.opti.subject_to(
+            #     OBS_NORM == self.normalizeState_casadi(
+            #         OBS,
+            #         np.array([self.x_min[0], 0]),
+            #         np.array([self.x_max[0], self.N])
+            #     )
+            # )
+
+
+            for ll in range(0, self.Np):
+                pk = ps[:, ll]
+
+                uk = self.compute_control_input(xs, ll, us, os_y, os_u, theta, jac_y_full, jac_input_full, u_prev)
+
+                # System dynamics and input constraints
+                self.opti.subject_to(xs[:, ll+1] == self.F(xs[:, ll], uk, ds[:, ll], pk))
+                self.opti.subject_to(ys[:, ll] == self.g(xs[:, ll+1]))
+                self.opti.subject_to(self.u_min <= (uk <= self.u_max))
+
+                # Linear penalty functions
+                self.opti.subject_to(P[:, ll] >= 0)
+                self.opti.subject_to(P[0, ll] >= self.lb_pen_w[0,0] * (self.y_min[1] - ys[1, ll]))
+                self.opti.subject_to(P[1, ll] >= self.ub_pen_w[0,0] * (ys[1, ll] - self.y_max[1]))
+                self.opti.subject_to(P[2, ll] >= self.lb_pen_w[0,1] * (self.y_min[2] - ys[2, ll]))
+                self.opti.subject_to(P[3, ll] >= self.ub_pen_w[0,1] * (ys[2, ll] - self.y_max[2]))
+                self.opti.subject_to(P[4, ll] >= self.lb_pen_w[0,2] * (self.y_min[3] - ys[3, ll]))
+                self.opti.subject_to(P[5, ll] >= self.ub_pen_w[0,2] * (ys[3, ll] - (self.y_max[3]-2.0)))
+
+                # COST FUNCTION WITH PENALTIES
+                delta_dw = xs[0, ll+1] - xs[0, ll]
+                J -= compute_economic_reward(delta_dw, p, self.dt, uk)
+                J += (P[0, ll]+ P[1, ll]+P[2, ll]+P[3, ll]+P[4, ll]+P[5, ll])
+                
+                # Input rate constraint on the variation from the previous control action)
+                if ll < self.Np-1:
+                    # obs_y = self.g(xs[:, ll+1])
+                    # obs_norm_y = self.opti.variable(self.ny)
+                    # self.opti.subject_to(
+                    #     obs_norm_y == self.norm_obs_agent(obs_y, self.mean[:self.ny], self.variance[:self.ny])
+                    # )
+                    # jac_y_matrix = jac_y_full[:, self.ny*(ll+1):self.ny*(ll+2)]
+
+                    next_input = self.compute_control_input(xs, ll+1, us, os_y, os_u, theta, jac_y_full, jac_input_full, uk)
+                    self.opti.subject_to(-self.du_max <= (next_input - uk <= self.du_max))
+                u_prev = uk
+
+            # # Value Function insertion
+            # if self.use_trained_vf:
+            #     print("Using self trained vf")
+            #     J_terminal = self.vf_casadi_approx_func(OBS_NORM, TAYLOR_COEFS)
+            # else:
+            #     # pass
+            #     print("using QF")
+            #     self.opti.subject_to(OBS[0] - ys[0,-1] == 0)
+            #     self.opti.subject_to(OBS[1:4] - ys[1:,-1] == 0)
+            #     self.opti.subject_to(OBS[4:7] - us[:,-1] == 0)
+            #     self.opti.subject_to(OBS[7] - timestep + self.Np == 0)
+            #     self.opti.subject_to(OBS[8:] - ds[0:,-1] == 0)
+            #     self.opti.subject_to(OBS_NORM == self.norm_obs_agent(OBS, self.mean, self.variance))
+            #     J_terminal = self.qf_function(ca.vertcat(OBS_NORM, A))  
+            # J -= J_terminal
+
+
+            # # Constraints on intial input
+            uk = self.compute_control_input(xs, 0, us, os_y, os_u, theta, jac_y_full, jac_input_full, init_u)
+            self.opti.subject_to(-self.du_max <= (uk - init_u <= self.du_max))  
+
+        J = J / self.Ns
+
         self.opti.minimize(J)
         self.opti.solver('ipopt', self.nlp_opts)
 
     # Create the parametric solution function
+        # self.MPC_func = self.opti.to_function(
+        #     "MPC_func",
+        #     [x0, ds, init_u, timestep, terminal_x, terminal_u, xs, us, TAYLOR_COEFS],
+        #     [self.us, ca.vertcat(*self.xs_list), J, J_terminal, OBS_NORM],
+        #     ["x0", "ds", "init_u", "timestep", "terminal_x", "terminal_u", "initial_X", "initial_U", "taylor_coefs"],
+        #     ["us_opt", "xs_opt", "J", "J0", "terminal_obs"]
+        # )
+
         self.MPC_func = self.opti.to_function(
             "MPC_func",
-            [x0, ds, init_u, time_step, terminal_x, terminal_u, xs, self.us, TAYLOR_COEFS],
-            [self.us, ca.vertcat(*self.xs_list), J, J_terminal, OBS_NORM],
-            ["x0", "ds", "init_u", "time_step", "terminal_x", "terminal_u", "initial_X", "initial_U", "taylor_coefs"],
-            ["us_opt", "xs_opt", "J", "J0", "terminal_obs"]
-        )
+            [x0, ds, init_u, timestep, *xs_list, *u_samples, *obs_norm_y_samples, *obs_norm_input_samples,
+             *jac_obs_y_samples, *jac_obs_input_samples, *p_samples],
+            [theta, ca.vertcat(*xs_list), ca.vertcat(*ys_list), J], # output
+            ["x0", "ds", "init_u", "timestep"]+                     # input
+            [f"x_init_{i}" for i in range(self.Ns)] +             # x initial guess
+            [f"u_sample_{i}" for i in range(self.Ns)] +             # u samples
+            [f"obs_norm_y_samples_{i}" for i in range(self.Ns)] +     # normalized y samples
+            [f"obs_norm_input_samples_{i}" for i in range(self.Ns)] + # normalized input samples
+            [f"jac_obs_y_sample_{i}" for i in range(self.Ns)] +     # policy jacobian wrt y
+            [f"jac_obs_input_sample_{i}" for i in range(self.Ns)] + # policy jacobian wrt input 
+            [f"p_sample_{i}" for i in range(self.Ns)],              # p samples
 
-        # Evaluate the initial cost using the MPC function
+            ["theta_opt", "xs_opt", "ys_opt", "J"]          # output
+        ) 
+
 
 class Experiment:
     """Experiment manager to test the closed loop performance of MPC.
@@ -353,13 +598,15 @@ class Experiment:
         project_name: str,
         weather_filename: str,
         uncertainty_value: float,
-        rng,
+        p,
+        rng
     ) -> None:
 
         self.project_name = project_name
         self.save_name = save_name
         self.mpc = mpc
         self.uncertainty_value = uncertainty_value
+        self.p = p
         self.rng = rng
 
         self.x = np.zeros((self.mpc.nx, self.mpc.N+1))
@@ -385,7 +632,7 @@ class Experiment:
         self.penalties = np.zeros((1, mpc.N))
         self.econ_rewards = np.zeros((1, mpc.N))
 
-    def solve_nmpc(self, p) -> None:
+    def solve_nmpc(self) -> None:
         """Solve the nonlinear MPC problem.
 
         Args:
@@ -466,6 +713,7 @@ class Experiment:
                 x_guess_1 = np.roll(xs_opt[:4,:], shift=-1, axis=1)
                 x_guess_1[:,-1] = np.copy(xx[:,-1])
 
+                # This term point is used to linearilize the value function around that point.
                 TERM_POINT_1 = np.copy(logs_1['obs'][:,-1])
                 TERM_POINT_1 = np.array([TERM_POINT_1[0],TERM_POINT_1[7]])
                 TERM_POINT_1 = self.mpc.normalizeState_casadi(
@@ -506,7 +754,205 @@ class Experiment:
             self.u[:, ll+1] = us_opt[:, 0].toarray().ravel()
 
             # Evolve State
-            params = parametric_uncertainty(p, self.uncertainty_value, self.rng)
+            params = parametric_uncertainty(self.p, self.uncertainty_value, self.mpc.rng)
+
+            self.x[:, ll+1] = self.mpc.F(self.x[:, ll], self.u[:, ll+1], self.d[:, ll], params).toarray().ravel()
+            self.y[:, ll+1] = self.mpc.g(self.x[:, ll+1], self.p).toarray().ravel()
+
+            delta_dw = self.x[0, ll+1] - self.x[0, ll]
+            econ_rew = compute_economic_reward(delta_dw, get_parameters(), self.mpc.dt, self.u[:, ll+1])
+            penalties = self.mpc.compute_penalties(self.y[:, ll+1])
+            self.update_results(us_opt, J_mpc_1, [], econ_rew, penalties, ll)
+
+    def generate_psamples(self) -> List[np.ndarray]:
+        """
+        Generate parametric samples for the specified number of scenarios.
+
+        This function creates a list of parametric samples, where each element 
+        corresponds to a scenario and contains samples generated based on the 
+        specified uncertainty parameters.
+
+        The number of scenarios is determined by `self.mpc.Ns`, and for each scenario, 
+        `self.mpc.Np` samples are generated using the `parametric_uncertainty` function.
+
+        Returns:
+            List[np.ndarray]: A list where each element is a 2D array of generated 
+            parametric samples for a scenario.
+
+        Example:
+            p_sample_list = self.generate_psamples()
+        """
+        p_samples = []
+        for i in range(self.mpc.Ns):
+            scenario_samples = []
+            for k in range(self.mpc.Np):
+                # Use MPC's random number generator to sample parameters
+                pk = parametric_uncertainty(self.p, self.uncertainty_value, self.mpc.rng)
+                scenario_samples.append(pk)
+            p_samples.append(np.vstack(scenario_samples))
+        return p_samples
+
+    def generate_samples(self, p_samples: List[np.ndarray]) -> Tuple[List[np.ndarray], ...]:
+        """
+        Generate state, input, and observation samples for each scenario.
+
+        This function generates various samples and their derivatives for each scenario 
+        by unrolling the actor with the provided parametric samples.
+
+        Args:
+            p_samples (List[np.ndarray]): List of parametric samples for each scenario.
+                Each element is a 2D array of shape (Np, n_params).
+
+        Returns:
+            Tuple[List[np.ndarray], ...]: A tuple containing lists of samples for each scenario:
+                - xk_samples: List of state trajectories
+                - uk_samples: List of input trajectories
+                - obs_norm_y_samples: List of normalized output observations
+                - obsnorminput_samples: List of normalized input observations
+                - jacobian_obs_state_samples: List of state Jacobians
+                - jacobian_obs_input_samples: List of input Jacobians
+        """
+        xk_samples = []
+        uk_samples = []
+        obs_norm_y_samples = []
+        obsnorminput_samples = []
+        jacobian_obs_state_samples = []
+        jacobian_obs_input_samples = []
+
+        for i in range(self.mpc.Ns):
+            p_i_samples = p_samples[i]
+            log = self.mpc.unroll_actor(p_i_samples, horizon=self.mpc.Np)
+            
+            # Store input and state trajectories
+            uk_samples.append(np.vstack(log["u"]))
+            xk_samples.append(np.vstack(log["x"]))
+
+            # Extract normalized observations
+            obs_norm = np.vstack(log["obs_norm"])
+            obs_norm_y_samples.append(obs_norm[:self.mpc.ny, :])
+            obsnorminput_samples.append(obs_norm[self.mpc.ny:self.mpc.ny+self.mpc.nu, :])
+
+            # Extract components for Jacobian computation
+            y = log["obs_norm"][:4]
+            u = log["obs_norm"][4:7]
+            timestep = log["obs_norm"][7]
+            d = log["obs_norm"][8:]
+
+            # Compute Jacobians for each timestep
+            jacobian_obs_state = []
+            jacobian_obs_input = []
+            for t in range(self.mpc.Np):
+                y_t = y[:, t]
+                u_t = u[:, t]
+                timestep_t = timestep[t]
+                d_t = d[:, t]
+                
+                jac_t_state = self.mpc.jac_actor_wrt_state(y_t, u_t, timestep_t, d_t).toarray()
+                jacobian_obs_state.append(jac_t_state)
+
+                jac_t_input = self.mpc.jac_actor_wrt_input(y_t, u_t, timestep_t, d_t).toarray()
+                jacobian_obs_input.append(jac_t_input)
+
+            jacobian_obs_state_samples.append(np.hstack(jacobian_obs_state))
+            jacobian_obs_input_samples.append(np.hstack(jacobian_obs_input))
+
+        return (xk_samples, uk_samples, obs_norm_y_samples, obsnorminput_samples, 
+                jacobian_obs_state_samples, jacobian_obs_input_samples)
+
+    def solve_nsmpc(self, order) -> None:
+        """Solve the nonlinear MPC problem.
+
+        Args:
+            p (Dict[str, Any]): the model parameters
+
+        Returns:
+            np.ndarray: the optimal control inputs
+            float: the cost value
+            np.ndarray: the constraints
+            Dict[str, Any]: the optimization output
+            np.ndarray: the control input changes
+            np.ndarray: the gradient of the cost function
+            np.ndarray: the hessian of the cost function
+        """
+        obs, _ = self.mpc.eval_env.reset()
+
+        # logs = self.mpc.unroll_actor(horizon=self.mpc.Np)
+        casadi_vf_approx_param = self.mpc.vf_casadi_model_approx.get_params(np.zeros(2))
+        coef_size = casadi_vf_approx_param.shape[0]
+
+        for ll in tqdm(range(self.mpc.N)):
+            p_samples = self.generate_psamples()
+            if ll == 0:
+                self.mpc.eval_env.set_env_state(self.x[:, ll], self.x[:,ll], self.u[:,ll], ll)
+            else:
+                self.mpc.eval_env.set_env_state(self.x[:, ll], self.x[:,ll-1], self.u[:,ll], ll)
+            (xk_samples, uk_samples, obs_norm_y_samples, obsnorminput_samples, 
+                jacobian_obs_state_samples, jacobian_obs_input_samples) = \
+                self.generate_samples(p_samples)
+
+            # Convert inputs to CasADi DM format; NOTE is this required??
+            ds = self.d[:, ll:ll+self.mpc.Np+1]
+            timestep = [ll]
+
+            # Convert samples to CasADi DM format
+            # x_init_list = [xk_samples[i] for i in range(self.mpc.Ns)]
+
+
+            x_sample_list = [xk_samples[i][:, :-1] for i in range(self.mpc.Ns)]
+            obs_norm_y_sample_list = [obs_norm_y_samples[i][:,:-1] for i in range(self.mpc.Ns)]
+            obs_norm_input_sample_list = [obsnorminput_samples[i][:,:-1] for i in range(self.mpc.Ns)]
+
+            # we have to transpose p_samples since MPC_func expects matrix of shape (n_params, Np)
+            p_sample_list = [p_samples[i].T for i in range(self.mpc.Ns)]
+
+            # Call MPC function with all inputs as CasADi DM
+            if order == "zero":
+                theta_opt, xs_opt, ys_opt, J_mpc_1 = self.mpc.MPC_func(
+                    self.x[:, ll],          # initial state
+                    ds,                     # disturbances
+                    self.u[:, ll],          # initial input
+                    timestep,               # current timestep
+                    *xk_samples,            # initial guess for states
+                    *uk_samples,            # input samples
+                    *p_sample_list          # parameter samples
+                )
+
+            elif order == "first":
+                theta_opt, xs_opt, ys_opt, J_mpc_1 = self.mpc.MPC_func(
+                    self.x[:, ll],          # initial state
+                    ds,                     # disturbances
+                    self.u[:, ll],          # initial input
+                    timestep,               # current timestep
+                    *xk_samples,          # initial guess for the states
+                    *uk_samples,            # input samples
+                    *obs_norm_y_sample_list,  # observation y samples
+                    *obs_norm_input_sample_list,      # observation input samples
+                    *jacobian_obs_state_samples,    # jacobian evaluated at observation y samples
+                    *jacobian_obs_input_samples,    # jacobian evaluated at observation input samples
+                    *p_sample_list                  # parameter samples
+                )
+
+            # Since the first RL sample always depends on x0 all the samples input (u) at t=0 will the same;
+            if order == "zero":
+                us_opt = uk_samples[0][:,0] + theta_opt[:, 0]
+
+            elif order == "first":
+                jac_y_matrix = jacobian_obs_state_samples[0][:,:self.mpc.ny]
+                jac_input_matrix = jacobian_obs_input_samples[0][:,:self.mpc.nu]
+
+                obs_y = self.mpc.g(self.x[:, ll])
+                obs_norm_y = self.mpc.norm_obs_agent(obs_y, self.mpc.mean[:self.mpc.ny], self.mpc.variance[:self.mpc.ny])
+                obs_u = self.u[:, ll]
+                obs_norm_u = self.mpc.norm_obs_agent(obs_u, self.mpc.mean[self.mpc.ny:self.mpc.ny+self.mpc.nu], self.mpc.variance[self.mpc.ny:self.mpc.ny+self.mpc.nu])
+
+                # Compute control input
+                us_opt = uk_samples[0][:, 0] + ca.mtimes(jac_y_matrix, (obs_norm_y_sample_list[0][:, 0] - obs_norm_y)) + \
+                    ca.mtimes(jac_input_matrix, obs_norm_input_sample_list[0][:, 0] - obs_norm_u) + theta_opt[:, 0]
+
+            self.u[:, ll+1] = us_opt.toarray().ravel()
+
+            # Evolve State
+            params = parametric_uncertainty(self.p, self.uncertainty_value, self.rng)
 
             self.x[:, ll+1] = self.mpc.F(self.x[:, ll], self.u[:, ll+1], self.d[:, ll], params).toarray().ravel()
             self.y[:, ll+1] = self.mpc.g(self.x[:, ll+1]).toarray().ravel()
@@ -516,6 +962,49 @@ class Experiment:
             penalties = self.mpc.compute_penalties(self.y[:, ll+1])
             self.update_results(us_opt, J_mpc_1, [], econ_rew, penalties, ll)
 
+        #         u_guess_1 = np.roll(us_opt, shift=-1, axis=1)
+        #         u_guess_1[:,-1] = np.copy(uu[:,-1])
+
+        #         x_guess_1 = np.roll(xs_opt[:4,:], shift=-1, axis=1)
+        #         x_guess_1[:,-1] = np.copy(xx[:,-1])
+
+        #         TERM_POINT_1 = np.copy(logs_1['obs'][:,-1])
+        #         TERM_POINT_1 = np.array([TERM_POINT_1[0],TERM_POINT_1[7]])
+        #         TERM_POINT_1 = self.mpc.normalizeState_casadi(
+        #             TERM_POINT_1,
+        #             np.array([self.mpc.x_min[0], 0]),
+        #             np.array([self.mpc.x_max[0],
+        #                       self.mpc.N])
+        #         )
+
+        #         # Unrolling actor from current state
+        #         self.mpc.eval_env.set_env_state(self.x[:, ll], self.x[:, ll-1], self.u[:, ll], ll)
+        #         logs_2 = self.mpc.unroll_actor(horizon=self.mpc.Np)
+
+        #         x_guess_2 = np.copy(logs_2['x'])
+        #         u_guess_2 = np.copy(logs_2['u'])
+
+        #         TERM_POINT_2 = np.copy(logs_2['obs'][:,-1])
+        #         TERM_POINT_2 = np.array([TERM_POINT_2[0], TERM_POINT_2[7]])
+        #         TERM_POINT_2 = self.mpc.normalizeState_casadi(
+        #             TERM_POINT_2, 
+        #             np.array([self.mpc.x_min[0], 0]),
+        #             np.array([self.mpc.x_max[0], self.mpc.N])
+        #         )
+
+        #     # Getting Optimal Control Value
+        #     coefs_1 = self.mpc.vf_casadi_model_approx.get_params(TERM_POINT_1.toarray().ravel())
+        #     us_opt, xs_opt, J_mpc_1, Jt_mpc_1, terminal_obs_1 = self.mpc.MPC_func(
+        #         self.x[:, ll], 
+        #         self.d[:, ll:ll+self.mpc.Np+1], 
+        #         self.u[:, ll],
+        #         ll,
+        #         x_guess_1[:,-1], 
+        #         u_guess_1[:,-1], 
+        #         x_guess_1, 
+        #         u_guess_1,
+        #         coefs_1
+        #     )
 
     def update_results(self, us_opt, Js_opt, sol, eco_rew, penalties, ll):
         """
@@ -569,6 +1058,32 @@ class Experiment:
         # Stack all arrays vertically
         return np.vstack(arrays).T
 
+    def retrieve_results(self, run=0):
+        data = {}
+        # transform the weather variables to the right units
+        self.d[1, :] = co2dens2ppm(self.d[2, :], self.d[1, :])
+        self.d[3, :] = vaporDens2rh(self.d[2, :], self.d[3, :])
+        data["time"] = self.mpc.t / 86400
+        for i in range(self.x.shape[0]):
+            data[f"x_{i}"] = self.x[i, :self.mpc.N]
+        for i in range(self.y.shape[0]):
+            data[f"y_{i}"] = self.y[i, :self.mpc.N]
+        for i in range(self.u.shape[0]):
+            data[f"u_{i}"] = self.u[i, 1:]
+        for i in range(self.d.shape[0]):
+            data[f"d_{i}"] = self.d[i, :self.mpc.N]
+        # for i in range(self.uopt.shape[0]):
+        #     for j in range(self.uopt.shape[1]):
+        #         data[f"uopt_{i}_{j}"] = self.uopt[i, j, :-1]
+        data["J"] = self.J.flatten()
+        data["econ_rewards"] = self.econ_rewards.flatten()
+        data["penalties"] = self.penalties.flatten()
+        data["rewards"] = self.rewards.flatten()
+
+        df = pd.DataFrame(data, columns=data.keys())
+        df['run'] = run
+        return df
+
     def save_results(self, save_path):
         """
         """
@@ -593,7 +1108,6 @@ class Experiment:
         df = pd.DataFrame(data, columns=data.keys())
         df.to_csv(f"{save_path}/{self.save_name}.csv", index=False)
 
-
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--project", type=str, default="matching-thesis")
@@ -603,37 +1117,39 @@ if __name__ == "__main__":
     parser.add_argument("--algorithm", type=str, default="sac")
     parser.add_argument("--model_name", type=str, default="thesis-agent")
     parser.add_argument("--use_trained_vf", action="store_true")
+    parser.add_argument("--uncertainty_value", type=float, required=True)
     parser.add_argument("--mode", type=str, choices=['deterministic', 'stochastic'], required=True)
+    parser.add_argument("--order", type=str, choices=["zero", "first"], required=True)
 
     args = parser.parse_args()
     load_path = f"train_data/{args.project}/{args.algorithm}/{args.mode}"
 
     save_path = f"data/{args.project}/stochastic/rlsmpc"
     os.makedirs(save_path, exist_ok=True)
-    uncertainty_value = 0.05
 
     # load the environment parameters
     env_params = load_env_params(args.env_id)
     mpc_params = load_mpc_params(args.env_id)
-    mpc_params["uncertainty_value"] = uncertainty_value
+    mpc_params["uncertainty_value"] = args.uncertainty_value
 
     # load the RL parameters
     hyperparameters, rl_env_params = load_rl_params(args.env_id, args.algorithm)
     rl_env_params.update(env_params)
-    rl_env_params["uncertainty_value"] = uncertainty_value
+    rl_env_params["uncertainty_value"] = args.uncertainty_value
 
     # the paths to the RL models and environment
     rl_model_path = f"{load_path}/models/{args.model_name}/best_model.zip"
     vf_path = f"{load_path}/models/{args.model_name}/vf.zip"
     env_path = f"{load_path}/envs/{args.model_name}/best_vecnormalize.pkl"
 
-
     # run the experiment
-    H = [1, 2, 3, 4, 5, 6]
-    mpc_params["Ns"] = 5
+    H = [4, 5, 6]
+    mpc_params["Ns"] = 10
     for h in H:
-        save_name = f"{args.save_name}-{h}H-{mpc_params['Ns']}Ns-{uncertainty_value}"
-        mpc_params["rng"] = np.random.default_rng(42)
+        save_name = f"{args.model_name}-{args.save_name}-{h}H-{args.uncertainty_value}"
+        mpc_rng = np.random.default_rng(42)
+        exp_rng = np.random.default_rng(666)
+        mpc_params["rng"] = mpc_rng
         mpc_params["Np"] = int(h * 3600 / env_params["dt"])
 
         # p = DefineParameters()
@@ -647,11 +1163,13 @@ if __name__ == "__main__":
             rl_model_path,
             use_trained_vf=args.use_trained_vf,
             vf_path=vf_path,
-            run=0
+            run=0,
         )
-        rl_mpc.define_nlp(p)
+        if args.order == "zero":
+            rl_mpc.define_zero_order_snlp(p)
+        elif args.order == "first":
+            rl_mpc.define_first_order_snlp(p)
 
-        rng = np.random.default_rng(666)
-        exp = Experiment(rl_mpc, save_name, args.project, args.weather_filename, uncertainty_value, rng)
-        exp.solve_nmpc(p)
+        exp = Experiment(rl_mpc, save_name, args.project, args.weather_filename, args.uncertainty_value, p, exp_rng)
+        exp.solve_nsmpc(args.order)
         exp.save_results(save_path)
