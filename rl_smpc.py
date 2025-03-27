@@ -1067,7 +1067,7 @@ if __name__ == "__main__":
     env_path = f"{load_path}/envs/{args.model_name}/best_vecnormalize.pkl"
 
     # run the experiment
-    H = [4, 5, 6]
+    H = [1, 2, 3, 4, 5, 6]
     mpc_params["Ns"] = 10
     for h in H:
         save_name = f"{args.model_name}-{args.save_name}-{h}H-{args.uncertainty_value}"
