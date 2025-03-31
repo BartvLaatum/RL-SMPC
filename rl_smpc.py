@@ -673,7 +673,10 @@ class Experiment:
 
         self.uopt = np.zeros((mpc.nu, mpc.Np, mpc.N+1))
         self.J = np.zeros((1, mpc.N))
+        self.p_samples_all = np.zeros((mpc.Ns, 34, mpc.Np, mpc.N))
         self.dJdu = np.zeros((mpc.nu*mpc.Np, mpc.N))
+        self.xs_opt_all = np.zeros((mpc.Ns, mpc.nx, mpc.Np+1, mpc.N))
+        self.ys_opt_all = np.zeros((mpc.Ns, mpc.ny, mpc.Np+1, mpc.N))
         self.output = []
         self.rewards = np.zeros((1, mpc.N))
         self.penalties = np.zeros((1, mpc.N))
@@ -930,6 +933,162 @@ class Experiment:
             penalties = self.mpc.compute_penalties(self.y[:, ll+1])
             self.update_results(us_opt, J_mpc_1, [], econ_rew, penalties, ll)
 
+    def solve_smpc_OL_predictions(self, order) -> None:
+        """Solve the nonlinear Stochastic MPC problem.
+
+        Args:
+            p (Dict[str, Any]): the model parameters
+
+        Returns:
+            np.ndarray: the optimal control inputs
+            float: the cost value
+            np.ndarray: the constraints
+            Dict[str, Any]: the optimization output
+            np.ndarray: the control input changes
+            np.ndarray: the gradient of the cost function
+            np.ndarray: the hessian of the cost function
+        """
+        self.mpc.eval_env.reset()
+        theta_init = np.zeros((self.mpc.nu, self.mpc.Np))
+
+        for ll in tqdm(range(1)):
+            p_samples = self.generate_psamples()
+            if ll == 0:
+                self.mpc.eval_env.set_env_state(self.x[:, ll], self.x[:,ll], self.u[:,ll], ll)
+            else:
+                self.mpc.eval_env.set_env_state(self.x[:, ll], self.x[:,ll-1], self.u[:,ll], ll)
+            (xk_samples, terminal_xs, uk_samples, end_points, obs_norm_y_samples, obs_norm_input_samples, 
+                jacobian_obs_state_samples, jacobian_obs_input_samples) = \
+                self.generate_samples(p_samples)
+
+            # Get Taylor coefficients for all samples
+            taylor_coefficients = self.get_taylor_coefficients(end_points)
+
+            # Convert inputs to CasADi DM format; NOTE is this required??
+            ds = self.d[:, ll:ll+self.mpc.Np+1]
+            timestep = [ll]
+
+            # we have to transpose p_samples since MPC_func expects matrix of shape (n_params, Np)
+            p_sample_list = [p_samples[i].T for i in range(self.mpc.Ns)]
+
+            # Call MPC function with all inputs as CasADi DM
+            if order == "zero":
+                theta_opt, xs_opt, ys_opt, J_mpc_1 = self.mpc.MPC_func(
+                    self.x[:, ll],          # initial state
+                    ds,                     # disturbances
+                    self.u[:, ll],          # initial input
+                    timestep,               # current timestep
+                    theta_init,             # initial guess for theta
+                    *xk_samples,            # initial guess for states
+                    *terminal_xs,           # terminal state constraint
+                    *uk_samples,            # input samples
+                    *p_sample_list,          # parameter samples
+                    *taylor_coefficients    # taylor coefficients for value function approximation
+                )
+
+            elif order == "first":
+                theta_opt, xs_opt, ys_opt, J_mpc_1 = self.mpc.MPC_func(
+                    self.x[:, ll],          # initial state
+                    ds,                     # disturbances
+                    self.u[:, ll],          # initial input
+                    timestep,               # current timestep
+                    theta_init,             # initial guess for theta
+                    *xk_samples,            # initial guess for the states
+                    *terminal_xs,           # terminal state constraint
+                    *uk_samples,            # input samples
+                    *obs_norm_y_samples,    # observation y samples
+                    *obs_norm_input_samples,        # observation input samples
+                    *jacobian_obs_state_samples,    # jacobian evaluated at observation y samples
+                    *jacobian_obs_input_samples,    # jacobian evaluated at observation input samples
+                    *p_sample_list,                  # parameter samples
+                    *taylor_coefficients            # taylor coefficients for value function approximation
+                )
+
+            # Since the first RL sample always depends on x0 all the samples input (u) at t=0 will the same;
+            if order == "zero":
+                us_opt = uk_samples[0][:,0] + theta_opt[:, 0]
+
+            elif order == "first":
+                jac_y_matrix = jacobian_obs_state_samples[0][:,:self.mpc.ny]
+                jac_input_matrix = jacobian_obs_input_samples[0][:,:self.mpc.nu]
+
+                obs_y = self.mpc.g(self.x[:, ll])
+                obs_norm_y = self.mpc.norm_obs_agent(obs_y, self.mpc.mean[:self.mpc.ny], self.mpc.variance[:self.mpc.ny])
+                obs_u = self.u[:, ll]
+                obs_norm_u = self.mpc.norm_obs_agent(obs_u, self.mpc.mean[self.mpc.ny:self.mpc.ny+self.mpc.nu], self.mpc.variance[self.mpc.ny:self.mpc.ny+self.mpc.nu])
+
+                # Compute control input
+                us_opt = uk_samples[0][:, 0] + ca.mtimes(jac_y_matrix, (obs_norm_y_samples[0][:, 0] - obs_norm_y)) + \
+                    ca.mtimes(jac_input_matrix, obs_norm_input_samples[0][:, 0] - obs_norm_u) + theta_opt[:, 0]
+
+            self.u[:, ll+1] = us_opt.toarray().ravel()
+
+            theta_init = np.concatenate([theta_opt[:, 1:], ca.reshape(theta_opt[:, -1], (self.mpc.nu, 1))], axis=1)
+
+            # Evolve State
+            params = parametric_uncertainty(self.p, self.uncertainty_value, self.rng)
+
+            self.x[:, ll+1] = self.mpc.F(self.x[:, ll], self.u[:, ll+1], self.d[:, ll], params).toarray().ravel()
+            self.y[:, ll+1] = self.mpc.g(self.x[:, ll+1]).toarray().ravel()
+
+            delta_dw = self.x[0, ll+1] - self.x[0, ll]
+            econ_rew = compute_economic_reward(delta_dw, get_parameters(), self.mpc.dt, self.u[:, ll+1])
+            penalties = self.mpc.compute_penalties(self.y[:, ll+1])
+
+            xs_opt = xs_opt.toarray().reshape(self.mpc.Ns, self.mpc.nx, self.mpc.Np+1)
+            ys_opt = ys_opt.toarray().reshape(self.mpc.Ns, self.mpc.ny, self.mpc.Np)
+
+            # Insert the first index of the third dimension of xs_opt into ys_opt
+            # We need to reshape ys_opt to include space for the additional timestep
+            ys_opt_with_x0 = np.zeros((self.mpc.Ns, self.mpc.ny, self.mpc.Np + 1))
+            
+            # Copy existing ys_opt data
+            ys_opt_with_x0[:, :, 1:] = ys_opt
+            
+            # For the first timestep, calculate outputs from the first state in xs_opt
+            for s in range(self.mpc.Ns):
+                ys_opt_with_x0[s, :, 0] = self.mpc.g(xs_opt[s, :, 0]).toarray().ravel()
+
+            # Replace ys_opt with the new array that includes the initial output
+            ys_opt = ys_opt_with_x0
+
+            # Save the open-loop predictions for this timestep
+            self.xs_opt_all[:, :, :, ll] = xs_opt
+            self.ys_opt_all[:, :, :, ll] = ys_opt
+            self.p_samples_all[:,:,:,ll] = np.array(p_sample_list)
+
+            # self.update_results(us_opt, J_opt, [], econ_rew, penalties, ll)
+            self.update_results(uk_samples[0][:,:] + theta_opt[:, :], J_mpc_1, [], econ_rew, penalties, ll)
+        
+        # Save the open-loop predictions to file after all timesteps
+        self.save_open_loop_predictions()
+
+    def save_open_loop_predictions(self):
+        """
+        Save the open-loop predictions (xs_opt_all and ys_opt_all) to a file.
+        Using .npz format which is efficient for storing multiple numpy arrays.
+        """
+        save_path = os.path.join("data", self.project_name)
+        os.makedirs(save_path, exist_ok=True)
+        save_path = os.path.join(save_path,f"{self.save_name}-OL-predictions.npz")
+        np.savez(
+            save_path,
+            xs_opt_all=self.xs_opt_all,
+            ys_opt_all=self.ys_opt_all,
+            us_opt=self.uopt,
+            p_samples_all=self.p_samples_all,
+            d=self.d,
+            x=self.x,
+            y=self.y,
+            u=self.u,
+            J=self.J,
+            econ_rewards=self.econ_rewards,
+            penalties=self.penalties,
+            rewards=self.rewards
+        )
+        print(f"Open-loop predictions saved to {save_path}")
+
+
     def update_results(self, us_opt, Js_opt, sol, eco_rew, penalties, ll):
         """
         Args:
@@ -1008,7 +1167,7 @@ class Experiment:
         df['run'] = run
         return df
 
-    def save_results(self, save_path):
+    def save_results(self, save_path, run=0):
         """
         """
         data = {}
@@ -1030,7 +1189,87 @@ class Experiment:
         data["rewards"] = self.rewards.flatten()    
 
         df = pd.DataFrame(data, columns=data.keys())
+        df['run'] = run
         df.to_csv(f"{save_path}/{self.save_name}.csv", index=False)
+
+
+def create_rl_smpc(
+        h, 
+        env_params, 
+        mpc_params,
+        rl_env_params, 
+        algorithm,
+        env_path, 
+        rl_model_path, 
+        vf_path,
+        use_trained_vf=True 
+    ):
+    """Creates a Reinforcement Learning Stochastic Model Predictive Controller (RL-SMPC).
+
+    Args:
+        h (int): Prediction horizon in hours
+        env_params (dict): Environment parameters for the greenhouse simulation
+        mpc_params (dict): Parameters for the MPC controller
+        rl_env_params (dict): Parameters for the RL environment
+        args (Namespace): Command line arguments containing algorithm and value function settings
+        env_path (str): Path to the normalized environment file
+        rl_model_path (str): Path to the trained RL model
+        vf_path (str): Path to the trained value function
+
+    Returns:
+        RLSMPC: An initialized RL-SMPC controller instance
+    """
+    mpc_rng = np.random.default_rng(42)
+    mpc_params["rng"] = mpc_rng    
+    mpc_params["Ns"] = 10
+    mpc_params["Np"] = int(h * 3600 / env_params["dt"])
+
+    return RLSMPC(
+        env_params,
+        mpc_params,
+        rl_env_params,
+        algorithm, 
+        env_path,
+        rl_model_path,
+        use_trained_vf=use_trained_vf,
+        vf_path=vf_path,
+        run=0,
+    )
+
+def load_experiment_parameters(project, env_id, algorithm, mode, model_name, uncertainty_value):
+    """Load and prepare all parameters needed for the RL-SMPC experiment.
+    
+    Args:
+        project (str): Project name
+        env_id (str): Environment identifier
+        algorithm (str): RL algorithm name
+        mode (str): Mode of operation ('deterministic' or 'stochastic')
+        model_name (str): Name of the trained model
+        uncertainty_value (float): Value for uncertainty parameter
+        
+    Returns:
+        tuple: Contains environment parameters, MPC parameters, RL environment parameters,
+                and paths to the trained models/environments
+    """
+    load_path = f"train_data/{project}/{algorithm}/{mode}"
+
+    # load the environment parameters
+    env_params = load_env_params(env_id)
+    mpc_params = load_mpc_params(env_id)
+    mpc_params["uncertainty_value"] = uncertainty_value
+
+    # load the RL parameters
+    hyperparameters, rl_env_params = load_rl_params(env_id, algorithm)
+    rl_env_params.update(env_params)
+    rl_env_params["uncertainty_value"] = uncertainty_value
+
+    # the paths to the RL models and environment
+    rl_model_path = f"{load_path}/models/{model_name}/best_model.zip"
+    vf_path = f"{load_path}/models/{model_name}/vf.zip"
+    env_path = f"{load_path}/envs/{model_name}/best_vecnormalize.pkl"
+
+    return env_params, mpc_params, rl_env_params, env_path, rl_model_path, vf_path
+
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
@@ -1044,51 +1283,33 @@ if __name__ == "__main__":
     parser.add_argument("--uncertainty_value", type=float, required=True)
     parser.add_argument("--mode", type=str, choices=['deterministic', 'stochastic'], required=True)
     parser.add_argument("--order", type=str, choices=["zero", "first"], required=True)
-
     args = parser.parse_args()
-    load_path = f"train_data/{args.project}/{args.algorithm}/{args.mode}"
-
+ 
     save_path = f"data/{args.project}/stochastic/rlsmpc"
     os.makedirs(save_path, exist_ok=True)
 
-    # load the environment parameters
-    env_params = load_env_params(args.env_id)
-    mpc_params = load_mpc_params(args.env_id)
-    mpc_params["uncertainty_value"] = args.uncertainty_value
-
-    # load the RL parameters
-    hyperparameters, rl_env_params = load_rl_params(args.env_id, args.algorithm)
-    rl_env_params.update(env_params)
-    rl_env_params["uncertainty_value"] = args.uncertainty_value
-
-    # the paths to the RL models and environment
-    rl_model_path = f"{load_path}/models/{args.model_name}/best_model.zip"
-    vf_path = f"{load_path}/models/{args.model_name}/vf.zip"
-    env_path = f"{load_path}/envs/{args.model_name}/best_vecnormalize.pkl"
+    env_params, mpc_params, rl_env_params, env_path, rl_model_path, vf_path = \
+        load_experiment_parameters(args.project, args.env_id, args.algorithm, args.mode, args.model_name, args.uncertainty_value)
 
     # run the experiment
     H = [1, 2, 3, 4, 5, 6]
-    mpc_params["Ns"] = 10
     for h in H:
         save_name = f"{args.model_name}-{args.save_name}-{h}H-{args.uncertainty_value}"
-        mpc_rng = np.random.default_rng(42)
-        exp_rng = np.random.default_rng(666)
-        mpc_params["rng"] = mpc_rng
-        mpc_params["Np"] = int(h * 3600 / env_params["dt"])
-
-        # p = DefineParameters()
         p = get_parameters()
-        rl_mpc = RLSMPC(
-            env_params,
-            mpc_params, 
-            rl_env_params, 
+        exp_rng = np.random.default_rng(666) 
+
+        rl_mpc = create_rl_smpc(
+            h, 
+            env_params, 
+            mpc_params,
+            rl_env_params,
             args.algorithm,
             env_path,
             rl_model_path,
-            use_trained_vf=args.use_trained_vf,
-            vf_path=vf_path,
-            run=0,
-        )
+            vf_path,
+            args.used_trained_vf
+        )        
+
         if args.order == "zero":
             rl_mpc.define_zero_order_snlp(p)
         elif args.order == "first":

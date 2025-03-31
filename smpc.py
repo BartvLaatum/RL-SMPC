@@ -149,6 +149,7 @@ class SMPC:
 
 
         # Parameters
+        p_samples = [self.opti.parameter(p.shape[0], self.Np) for _ in range(self.Ns)]
         x0 = self.opti.parameter(self.nx, 1)  # Initial state
         ds = self.opti.parameter(self.nd, self.Np)  # Disturbances
         init_u = self.opti.parameter(self.nu, 1)  # Initial control input
@@ -161,13 +162,15 @@ class SMPC:
         for i in range(self.Ns):
             xs = xs_list[i]
             ys = ys_list[i]
+            ps = p_samples[i]
             P = Ps[i]
 
             self.opti.subject_to(xs[:,0] == x0)     # Initial Condition Constraint
 
             for ll in range(self.Np):
-                params = parametric_uncertainty(p, self.uncertainty_value, self.rng)
-                self.opti.subject_to(xs[:, ll+1] == self.F(xs[:, ll], us[:, ll], ds[:, ll], params))
+                pk = ps[:, ll]
+
+                self.opti.subject_to(xs[:, ll+1] == self.F(xs[:, ll], us[:, ll], ds[:, ll], pk))
                 self.opti.subject_to(ys[:, ll] == self.g(xs[:, ll+1]))
                 self.opti.subject_to(self.u_min <= (us[:,ll] <= self.u_max))                   # Input   Contraints
 
@@ -195,9 +198,9 @@ class SMPC:
         self.opti.solver('ipopt', self.nlp_opts)
         self.SMPC_func = self.opti.to_function(
             'SMPC_func',
-            [x0, ds, init_u],
+            [x0, ds, init_u, *p_samples],
             [us, ca.vertcat(*xs_list), ca.vertcat(*ys_list), Js],
-            ['x0','ds','u0'],
+            ['x0','ds','u0'] + [f"p_sample_{i}" for i in range(self.Ns)], 
             ['u_opt', 'x_opt_all', 'y_opt_all', 'J_opt'],
         )
 
@@ -281,13 +284,45 @@ class Experiment:
             self.mpc.nd
         )
 
+        # Store open-loop predictions for all scenarios
         self.uopt = np.zeros((mpc.nu, mpc.Np, mpc.N+1))
+        self.p_samples_all = np.zeros((mpc.Ns, 34, mpc.Np, mpc.N))
         self.J = np.zeros((1, mpc.N))
+        self.xs_opt_all = np.zeros((mpc.Ns, mpc.nx, mpc.Np+1, mpc.N))
+        self.ys_opt_all = np.zeros((mpc.Ns, mpc.ny, mpc.Np+1, mpc.N))
         self.dJdu = np.zeros((mpc.nu*mpc.Np, mpc.N))
         self.output = []
         self.penalties = np.zeros((1, mpc.N))
         self.econ_rewards = np.zeros((1, mpc.N))
         self.rewards = np.zeros((1, mpc.N))
+
+    def generate_psamples(self) -> List[np.ndarray]:
+        """
+        Generate parametric samples for the specified number of scenarios.
+
+        This function creates a list of parametric samples, where each element 
+        corresponds to a scenario and contains samples generated based on the 
+        specified uncertainty parameters.
+
+        The number of scenarios is determined by `self.mpc.Ns`, and for each scenario, 
+        `self.mpc.Np` samples are generated using the `parametric_uncertainty` function.
+
+        Returns:
+            List[np.ndarray]: A list where each element is a 2D array of generated 
+            parametric samples for a scenario.
+
+        Example:
+            p_sample_list = self.generate_psamples()
+        """
+        p_samples = []
+        for i in range(self.mpc.Ns):
+            scenario_samples = []
+            for k in range(self.mpc.Np):
+                # Use MPC's random number generator to sample parameters
+                pk = parametric_uncertainty(self.p, self.uncertainty_value, self.mpc.rng)
+                scenario_samples.append(pk)
+            p_samples.append(np.vstack(scenario_samples))
+        return p_samples
 
     def solve_nmpc(self) -> None:
         """Solve the nonlinear MPC problem.
@@ -305,8 +340,16 @@ class Experiment:
             np.ndarray: the hessian of the cost function
         """
         for ll in tqdm(range(self.mpc.N)):
+            p_samples = self.generate_psamples()
 
-            us_opt, xs_opt, ys_opt, J_opt = self.mpc.SMPC_func(self.x[:, ll], self.d[:, ll:ll+self.mpc.Np], self.u[:, ll])
+            # we have to transpose p_samples since MPC_func expects matrix of shape (n_params, Np)
+            p_sample_list = [p_samples[i].T for i in range(self.mpc.Ns)]
+            us_opt, xs_opt, ys_opt, J_opt = self.mpc.SMPC_func(
+                self.x[:, ll],
+                self.d[:, ll:ll+self.mpc.Np], 
+                self.u[:, ll], 
+                *p_sample_list
+            )
             self.u[:, ll+1] = us_opt[:, 0].toarray().ravel()
 
             params = parametric_uncertainty(self.p, self.uncertainty_value, self.rng)
@@ -319,6 +362,98 @@ class Experiment:
             penalties = self.mpc.compute_penalties(self.y[:, ll+1])
 
             self.update_results(us_opt, J_opt, [], econ_rew, penalties, ll)
+
+    def solve_smpc_OL_predictions(self) -> None:
+        """Solve the nonlinear Stochastic MPC problem.
+
+        Args:
+            p (Dict[str, Any]): the model parameters
+
+        Returns:
+            np.ndarray: the optimal control inputs
+            float: the cost value
+            np.ndarray: the constraints
+            Dict[str, Any]: the optimization output
+            np.ndarray: the control input changes
+            np.ndarray: the gradient of the cost function
+            np.ndarray: the hessian of the cost function
+        """
+        for ll in tqdm(range(1)):
+            print(f"solving timestep {ll}")
+            p_samples = self.generate_psamples()
+
+            # we have to transpose p_samples since MPC_func expects matrix of shape (n_params, Np)
+            p_sample_list = [p_samples[i].T for i in range(self.mpc.Ns)]
+            # breakpoint()
+            us_opt, xs_opt, ys_opt, J_opt = self.mpc.SMPC_func(
+                self.x[:, ll],
+                self.d[:, ll:ll+self.mpc.Np], 
+                self.u[:, ll], 
+                *p_sample_list
+            )
+
+            self.u[:, ll+1] = us_opt[:, 0].toarray().ravel()
+            params = parametric_uncertainty(self.p, self.mpc.uncertainty_value, self.rng)
+
+            self.x[:, ll+1] = self.mpc.F(self.x[:, ll], self.u[:, ll+1], self.d[:, ll], params).toarray().ravel()
+            self.y[:, ll+1] = self.mpc.g(self.x[:, ll+1]).toarray().ravel()
+
+            delta_dw = self.x[0, ll+1] - self.x[0, ll]
+            econ_rew = compute_economic_reward(delta_dw, get_parameters(), self.mpc.dt, self.u[:, ll+1])
+            penalties = self.mpc.compute_penalties(self.y[:, ll+1])
+
+            xs_opt = xs_opt.toarray().reshape(self.mpc.Ns, self.mpc.nx, self.mpc.Np+1)
+            ys_opt = ys_opt.toarray().reshape(self.mpc.Ns, self.mpc.ny, self.mpc.Np)
+
+            # Insert the first index of the third dimension of xs_opt into ys_opt
+            # We need to reshape ys_opt to include space for the additional timestep
+            ys_opt_with_x0 = np.zeros((self.mpc.Ns, self.mpc.ny, self.mpc.Np + 1))
+            
+            # Copy existing ys_opt data
+            ys_opt_with_x0[:, :, 1:] = ys_opt
+            
+            # For the first timestep, calculate outputs from the first state in xs_opt
+            for s in range(self.mpc.Ns):
+                ys_opt_with_x0[s, :, 0] = self.mpc.g(xs_opt[s, :, 0]).toarray().ravel()
+
+            # Replace ys_opt with the new array that includes the initial output
+            ys_opt = ys_opt_with_x0
+
+            # Save the open-loop predictions for this timestep
+            self.xs_opt_all[:, :, :, ll] = xs_opt
+            self.ys_opt_all[:, :, :, ll] = ys_opt
+            self.p_samples_all[:,:,:,ll] = np.array(p_sample_list)
+
+            self.update_results(us_opt, J_opt, [], econ_rew, penalties, ll)
+        
+        # Save the open-loop predictions to file after all timesteps
+        self.save_open_loop_predictions()
+
+    def save_open_loop_predictions(self):
+        """
+        Save the open-loop predictions (xs_opt_all and ys_opt_all) to a file.
+        Using .npz format which is efficient for storing multiple numpy arrays.
+        """
+        save_path = os.path.join("data", self.project_name)
+        os.makedirs(save_path, exist_ok=True)
+        save_path = os.path.join(save_path,f"{self.save_name}-OL-predictions.npz")
+        np.savez(
+            save_path,
+            xs_opt_all=self.xs_opt_all,
+            ys_opt_all=self.ys_opt_all,
+            us_opt=self.uopt,
+            p_samples_all=self.p_samples_all,
+            d=self.d,
+            x=self.x,
+            y=self.y,
+            u=self.u,
+            J=self.J,
+            econ_rewards=self.econ_rewards,
+            penalties=self.penalties,
+            rewards=self.rewards
+        )
+        print(f"Open-loop predictions saved to {save_path}")
+
 
     def update_results(self, us_opt, Js_opt, sol, eco_rew, penalties, step):
         """
