@@ -3,6 +3,7 @@ from os.path import join
 import argparse
 from tqdm import tqdm
 import multiprocessing
+import time
 
 import numpy as np
 
@@ -13,6 +14,8 @@ from common.utils import load_env_params, load_mpc_params, get_parameters
 from functools import partial
 
 def run_experiment(run, env_params, mpc_params, rl_env_params, args, env_path, rl_model_path, vf_path, p, seed, save_name):
+    # Add a small delay based on run ID to avoid resource contention
+
     rl_mpc = RLMPC(
         env_params, 
         mpc_params, 
@@ -30,8 +33,11 @@ def run_experiment(run, env_params, mpc_params, rl_env_params, args, env_path, r
     exp.solve_nmpc()
     return exp.get_results(run)
 
-
 if __name__ == "__main__":
+    # Set the OMP_NUM_THREADS environment variable to limit threads per process
+    # this fixed the optimization runtime..
+    os.environ["OMP_NUM_THREADS"] = "1"
+
     ctx = multiprocessing.get_context("spawn")
     parser = argparse.ArgumentParser()
     parser.add_argument("--project", type=str, default="matching-thesis")
@@ -54,7 +60,6 @@ if __name__ == "__main__":
     else:
         args.uncertainty_value = 0
     os.makedirs(save_path, exist_ok=True)
-
 
     # load in the trained model
     rl_model_path = f"{load_path}/models/{args.model_name}/best_model.zip"
@@ -93,7 +98,7 @@ if __name__ == "__main__":
             save_name = f"{args.save_name}-{args.model_name}-{H}H.csv"
         
         mpc_params["Np"] = int(H * 3600 / dt)
-
+        
         run_exp = partial(
             run_experiment, 
             env_params=env_params,
@@ -107,25 +112,12 @@ if __name__ == "__main__":
             seed=seed,
             save_name=save_name
         )
-        for run in tqdm(range(N_sims)):
-            data = run_exp(run)
+
+        num_processes = 10
+        with ctx.Pool(processes=num_processes) as pool:
+            data_list = list(tqdm(pool.imap(run_exp, range(N_sims)), total=N_sims))
+
+        for data in data_list:
             results.update_result(data)
 
-        # with ctx.Pool(processes=10) as pool:
-            # run_exp = partial(run_experiment, 
-            #     env_params=env_params,
-            #     mpc_params=mpc_params,
-            #     rl_env_params=rl_env_params,
-            #     args=args,
-            #     env_path=env_path,
-            #     rl_model_path=rl_model_path,
-            #     vf_path=vf_path,
-            #     p=p,
-            #     seed=seed,
-            #     save_name=save_name)
-            # data_list = list(tqdm(pool.imap(run_exp, range(N_sims)), total=N_sims))
-
-        # for data in data_list:
-        #     results.update_result(data)
-
-        results.save(join(save_path,save_name))
+        results.save(join(save_path, save_name))

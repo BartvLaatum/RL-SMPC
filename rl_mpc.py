@@ -4,7 +4,6 @@ from typing import Any, Dict, List
 
 import numpy as np
 import pandas as pd
-from tqdm import tqdm
 import torch as th
 import casadi as ca
 import l4casadi as l4c
@@ -260,11 +259,8 @@ class RLMPC(MPC):
 
         # Value Function insertion
         if self.use_trained_vf:
-            print("Using self trained vf")
             J_terminal = self.vf_casadi_approx_func(OBS_NORM, TAYLOR_COEFS)
         else:
-            # pass
-            print("using QF")
             self.opti.subject_to(OBS[0] - ys[0,-1] == 0)
             self.opti.subject_to(OBS[1:4] - ys[1:,-1] == 0)
             self.opti.subject_to(OBS[4:7] - us[:,-1] == 0)
