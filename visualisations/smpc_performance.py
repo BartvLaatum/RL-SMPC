@@ -110,8 +110,8 @@ def load_data(
 
 
     for h in horizons:
-        mpc_path = f'data/{project}/{mode}/mpc/mpc-noise-correction-{h}{uncertainty_suffix}.csv'
-        smpc_path = f'data/{project}/{mode}/smpc/smpc-noise-correction-{h}-10Ns{uncertainty_suffix}.csv'
+        mpc_path = f'data/{project}/{mode}/mpc/mpc-{h}{uncertainty_suffix}.csv'
+        smpc_path = f'data/{project}/{mode}/smpc/lr-feedback-{h}-10Ns{uncertainty_suffix}.csv'
 
         if h not in data['mpc'] and os.path.exists(mpc_path):
             data['mpc'][h] = pd.read_csv(mpc_path)
