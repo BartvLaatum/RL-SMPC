@@ -49,7 +49,7 @@ if __name__ == "__main__":
     # Generate data points and trajectories using the specified model and environment
     data_points, trajectories = my_value_function.sim_with_agent(
         env_params=env_params,
-        num_traj=1000,
+        num_traj=10,
         spread=0.5,
         model_path=model_path, 
         env_path=env_path, 
@@ -85,7 +85,12 @@ if __name__ == "__main__":
         wandb_run=run,
         N=N,
     )
-    wandb.watch(my_vf.neural_net, log_freq=1)
+    # wandb.watch(my_vf.neural_net, log_freq=1)
+    print(f"Network device: {next(my_vf.neural_net.parameters()).device}")
+    if torch.cuda.is_available():
+        my_vf.neural_net.to('cuda')
+        # my_vf.input_tensor = my_vf.input_tensor.cuda()
+        # my_vf.target_tensor = my_vf.target_tensor.cuda()
 
     my_vf.values  = copy.deepcopy(my_value_function.values)
     my_vf.trajectories = copy.deepcopy(my_value_function.trajectories)
@@ -93,5 +98,5 @@ if __name__ == "__main__":
 
     # Create folders for export
     # current_day_time = datetime.datetime.now().strftime("%Y%m%d_%H%M")
-    save_path = f"train_data/{args.project}/{args.algorithm}/{args.mode}/models/{args.model_name}/vf.zip"
-    torch.save(my_vf.neural_net, save_path)
+    # save_path = f"train_data/{args.project}/{args.algorithm}/{args.mode}/models/{args.model_name}/vf.zip"
+    # torch.save(my_vf.neural_net, save_path)

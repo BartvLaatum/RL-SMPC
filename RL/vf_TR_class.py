@@ -153,7 +153,7 @@ class value_function_TR():
 
     def prepare_data(self):
         split_ratio = 0.8
-        
+
         all_data = list(self.values.items())
         random.shuffle(all_data)
         split_point = int(len(all_data) * split_ratio)
@@ -161,14 +161,25 @@ class value_function_TR():
         train_values    = all_data[:split_point]
         validate_values = all_data[split_point:]
         
+        device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
+        def to_tensor(x):
+            if not torch.is_tensor(x):
+                return torch.tensor(x, dtype=torch.float32, device=device)
+            return x.to(device)
+
+        # Convert both inputs (keys) and targets (values) to tensors on the correct device
+        train_values = [(to_tensor(k), to_tensor(v)) for k, v in train_values]
+        validate_values = [(to_tensor(k), to_tensor(v)) for k, v in validate_values]
+
         self.train_data    = dict(train_values)
         self.validate_data = dict(validate_values)
-        
-        self.train_dataset  = MyDataset(self.train_data)
+
+        self.train_dataset     = MyDataset(self.train_data)
         self.validate_dataset  = MyDataset(self.validate_data)
 
-        self.data_loader_train = torch.utils.data.DataLoader(self.train_dataset,batch_size=self.batch_size, shuffle=True)
-        self.data_loader_validate = torch.utils.data.DataLoader(self.validate_dataset,batch_size=self.batch_size, shuffle=True)
+        self.data_loader_train = torch.utils.data.DataLoader(self.train_dataset, batch_size=self.batch_size, shuffle=True)
+        self.data_loader_validate = torch.utils.data.DataLoader(self.validate_dataset, batch_size=self.batch_size, shuffle=True)
 
     def train(self, epochs):
 
