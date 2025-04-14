@@ -98,7 +98,7 @@ def transform_disturbances(d: np.ndarray) -> np.ndarray:
     d[3] = vaporDens2rh(d[2], d[3])
     return d
 
-def rh2vaporDens(temp,rh):
+def rh2vaporDens(temp, rh):
     
     # constants
     R = 8.3144598 # molar gas constant [J mol^{-1} K^{-1}]
@@ -252,19 +252,20 @@ def ode(x, u, d, p):
     Returns:
         casadi: The derivatives of the state variables.
     """
+    eps = 0
     ode = casadi.vertcat(
         p[13] * (
-            (1 - np.exp(-p[16] * x[0])) * p[17] * d[0] *
-            (-p[18] * x[2]**2 + p[19] * x[2] - p[20]) * (x[1] - p[21]) 
-            / (p[17] * d[0] + (-p[18] * x[2]**2 + p[19] * x[2] - p[20]) * (x[1] - p[21]))
+            (1 - casadi.exp(-p[16] * x[0])) * p[17] * d[0] *
+            (-p[18] * casadi.power(x[2], 2) + p[19] * x[2] - p[20]) * (x[1] - p[21]) 
+            / (p[17] * d[0] + (-p[18] * casadi.power(x[2], 2) + p[19] * x[2] - p[20]) * (x[1] - p[21]) + eps)
         )
-        - p[14]*x[0] * 2**(0.1*x[2] - 2.5),
+        - p[14]*x[0] * casadi.power(2, (0.1*x[2] - 2.5)),
 
         (1 / p[7]) * (
-            -((1 - np.exp(-p[16] * x[0])) * (p[17] * d[0] *
-            (-p[18] * x[2]**2 + p[19] * x[2] - p[20]) * (x[1] - p[21]))
-            / (p[17] * d[0] + (-p[18] * x[2]**2 + p[19] * x[2] - p[20]) * (x[1] - p[21])))
-            + p[15] * x[0] * 2 ** (0.1 * x[2] - 2.5) + u[0]/1e6 - (u[1] / 1e3 + p[6]) * (x[1] - d[1])
+            -((1 - casadi.exp(-p[16] * x[0])) * (p[17] * d[0] *
+            (-p[18] * casadi.power(x[2], 2) + p[19] * x[2] - p[20]) * (x[1] - p[21]))
+            / (p[17] * d[0] + (-p[18] * casadi.power(x[2], 2) + p[19] * x[2] - p[20]) * (x[1] - p[21]) + eps))
+            + p[15] * x[0] * casadi.power(2, (0.1 * x[2] - 2.5)) + u[0]/1e6 - (u[1] / 1e3 + p[6]) * (x[1] - d[1])
         ),
 
         (1 / p[9]) * (
@@ -272,8 +273,8 @@ def ode(x, u, d, p):
         ),
 
         (1 / p[8]) * (
-            (1 - np.exp(-p[16] * x[0])) * p[22] * (p[0] / (p[4] * (x[2] + p[5])) *
-            np.exp((p[1] * x[2]) / (x[2] + p[2])) - x[3]) - 
+            (1 - casadi.exp(-p[16] * x[0])) * p[22] * (p[0] / (p[4] * (x[2] + p[5])) *
+            casadi.exp((p[1] * x[2]) / (x[2] + p[2])) - x[3]) - 
             (u[1]*1e-3 + p[6]) * (x[3] - d[3])
         )
     )
