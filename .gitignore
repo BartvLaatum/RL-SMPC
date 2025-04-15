@@ -8,3 +8,4 @@ data/
 *.pyc
 *.ipynb_checkpoints
 *__pycache__*
+slurm_outputs/
