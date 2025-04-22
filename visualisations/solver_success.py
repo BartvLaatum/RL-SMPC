@@ -192,9 +192,9 @@ def main():
         "mpc": data.get("mpc", {}),
         "mpc-clipped": data.get("mpc-clipped", {})
     }
-    labels = ["MPC", "MPC-Clipped"]
-    # plot_mpc_vs_rl_smpc(subset_data, labels=labels)
-    # bar_plot_solver_success(subset_data, labels, colors=["C0","C3"])
+    labels = ["MPC", "MPC Box constraints"]
+    plot_mpc_vs_rl_smpc(subset_data, labels=labels)
+    bar_plot_solver_success(subset_data, labels, colors=["C0","C3"])
 
     # comparison s/mpc and s/mpc-clipped
     subset_data = {
@@ -203,7 +203,7 @@ def main():
         "smpc": data.get("smpc", {}),
         "smpc-clipped": data.get("smpc-clipped", {})
     }
-    labels = ["SMPC", "SMPC-clipped"]
+    labels = ["SMPC", "SMPC Box constraints"]
     bar_plot_solver_success(subset_data, labels, colors=["C0", "C3"])
     plot_mpc_vs_rl_smpc(subset_data, labels=labels)
 
