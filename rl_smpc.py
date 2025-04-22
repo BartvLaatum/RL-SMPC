@@ -89,8 +89,8 @@ class RLSMPC(SMPC):
 
         min_val = ca.MX.sym("min_val")
         max_val = ca.MX.sym("max_val")
-        obs_norm = 10 * ((observation - min_val) / (max_val - min_val)) # TODO: Should it use parameters from SHARED.params instead of 10 and 5?
-        normalizeObs_casadi = ca.Function("normalizeObs", [observation, min_val, max_val], [obs_norm])
+        # obs_norm = 10 * ((observation - min_val) / (max_val - min_val)) # TODO: Should it use parameters from SHARED.params instead of 10 and 5?
+        # normalizeObs_casadi = ca.Function("normalizeObs", [observation, min_val, max_val], [obs_norm])
         state_norm = 10 * ((observation - min_val) / (max_val - min_val)) - 5 # TODO: Should it use parameters from SHARED.params instead of 10 and 5?
         self.normalizeState_casadi = ca.Function("normalizeObs", [observation, min_val, max_val], [state_norm])
 
@@ -114,11 +114,11 @@ class RLSMPC(SMPC):
         )
 
         # Qf from agent
-        qf_casadi_model = l4c.L4CasADi(qvalue_fn(self.model.critic.q_networks[0]), device="cpu", name=f"qf_{run}") # Q: can we use "cuda" device? 
-        obs_and_action_sym = ca.MX.sym("obs_and_a", 15, 1)
-        qf_out = qf_casadi_model(obs_and_action_sym.T)
-        # NOTE: THIS ONE IS ONLY USED WHEN WE USE Q-VALUE FUNCTION RATHER THAN THE VF-FUNCTION (ie. when PPO is used)
-        self.qf_function = ca.Function("qf", [obs_and_action_sym], [qf_out])
+        # qf_casadi_model = l4c.L4CasADi(qvalue_fn(self.model.critic.q_networks[0]), device="cpu", name=f"qf_{run}") # Q: can we use "cuda" device? 
+        # obs_and_action_sym = ca.MX.sym("obs_and_a", 15, 1)
+        # qf_out = qf_casadi_model(obs_and_action_sym.T)
+        # # NOTE: THIS ONE IS ONLY USED WHEN WE USE Q-VALUE FUNCTION RATHER THAN THE VF-FUNCTION (ie. when PPO is used)
+        # self.qf_function = ca.Function("qf", [obs_and_action_sym], [qf_out])
 
         # Creating casadi version of the actor
         actor_casadi_model = l4c.L4CasADi(actor_fn(self.model.actor.latent_pi, self.model.actor.mu), device="cpu", name=f"actor_{run}")
@@ -136,6 +136,7 @@ class RLSMPC(SMPC):
         timestep = ca.MX.sym("timestep", 1)
         d_sym = ca.MX.sym("d_sym", 4, 1)
 
+        # required for the first-order implementation
         obs_sym_chain_rule = self.h(y_sym, u_sym, timestep, d_sym)
 
         # Actor output
@@ -170,7 +171,7 @@ class RLSMPC(SMPC):
 
     def h(self, x, u, d, timestep):
         return ca.vertcat(x, u, timestep, d)
-        
+ 
 
     def unroll_actor(self, p_i_samples=None, horizon=1, freeze=True,):
         """
@@ -242,6 +243,87 @@ class RLSMPC(SMPC):
 
         return log
 
+    def solve_ocp(
+            self, 
+            x0, 
+            u0, 
+            ds, 
+            timestep,
+            theta_init,
+            xk_samples, 
+            terminal_xs, 
+            uk_samples, 
+            p_samples, 
+            taylor_coefficients
+        ):
+        """
+        Sets solver values for the OCP.
+        This function initializes various parameters and values required for the scenario-based
+        Stochastic Model Predictive Control (MPC) solver, including initial states, control inputs,
+        scenario trajectories, and Taylor expansion coefficients.
+        Additionally, it provides an initial guess for the optimization variables.
+        Args:
+            x0 (numpy.ndarray): Initial state vector
+            u0 (numpy.ndarray): Initial control input vector
+            ds (float): Step size or discretization parameter
+            k (int): Current timestep
+            xk_samples (list): List of state trajectories for each scenario
+            terminal_xs (list): List of terminal states for each scenario
+            uk_samples (list): List of control input trajectories for each scenario
+            p_samples (list): List of parameter samples for each scenario
+            taylor_coefficients (list): List of Taylor expansion coefficients for each scenario
+        Returns:
+            (xs_opt, ys_opt, theta_opt, J, exit_message)
+        Note:
+            This function assumes that the OCP (self.opti) has been properly
+            initialized with the corresponding decision variables (xs_list, terminal_xs,
+            u_samples, p_samples, TAYLOR_COEFS_samples).
+        """
+        # Set the OCP parameter values
+        self.opti.set_value(self.x0, x0)        
+        self.opti.set_value(self.init_u, u0)
+        self.opti.set_value(self.timestep, timestep)
+        self.opti.set_value(self.ds, ds)
+        
+        # Set initial guess for state trajectories for each scenario
+        for i, xs in enumerate(self.xs_list):
+            self.opti.set_initial(xs, xk_samples[i])
+        
+        self.opti.set_initial(self.theta, theta_init)
+
+        # Set terminal state values for each scenario
+        for i, xterminal in enumerate(self.terminal_xs):
+            self.opti.set_value(xterminal, terminal_xs[i])
+        
+        # Set sampled RL control input values for each scenario
+        for i, us in enumerate(self.u_samples):
+            self.opti.set_value(us, uk_samples[i])
+        
+        # Set parametric uncertainty values for each scenario
+        for i, p_sample in enumerate(self.p_samples):
+            self.opti.set_value(p_sample, p_samples[i].T)
+        
+        # Set Taylor expansion coefficients for each scenario
+        for i, taylor_coeffs in enumerate(self.TAYLOR_COEFS_samples):
+            self.opti.set_value(taylor_coeffs, taylor_coefficients[i])
+
+        # Solve the OCP for the given scenario
+        try:
+            solution = self.opti.solve()
+        except RuntimeError as err:
+            # Recover from the failed solve: you might use the last iterate available via opti.debug
+            print("Solver failed with error:", err)
+            solution = self.opti.debug  # Returns the current iterate even if not converged
+
+        exit_message = solution.stats()['return_status']
+        xs_opt = [solution.value(self.xs_list[i]) for i in range(self.Ns)]
+        ys_opt = [solution.value(self.ys_list[i]) for i in range(self.Ns)]
+        theta_opt = solution.value(self.theta)
+        J = solution.value(self.opti.f)
+
+
+        return xs_opt, ys_opt, theta_opt, J, exit_message
+
     def define_zero_order_snlp(self, p: np.ndarray) -> None:
         """
         Define the zero-order stochastic nonlinear programming (SNLP) problem.
@@ -273,29 +355,29 @@ class RLSMPC(SMPC):
         num_penalties = 6
 
         # Decision Variables (Control inputs, slack variables, states, outputs)
-        theta = self.opti.variable(self.nu, self.Np)  # Control inputs (nu x Np)
-        xs_list = [self.opti.variable(self.nx, self.Np+1) for _ in range(self.Ns)]
-        ys_list = [self.opti.variable(self.ny, self.Np) for _ in range(self.Ns)]
+        self.theta = self.opti.variable(self.nu, self.Np)  # Control inputs (nu x Np)
+        self.xs_list = [self.opti.variable(self.nx, self.Np+1) for _ in range(self.Ns)]
+        self.ys_list = [self.opti.variable(self.ny, self.Np) for _ in range(self.Ns)]
         Ps = [self.opti.variable(num_penalties, self.Np) for _ in range(self.Ns)]
 
-        TAYLOR_COEFS_samples = [self.opti.parameter(self.coef_size) for _ in range(self.Ns)]
+        self.TAYLOR_COEFS_samples = [self.opti.parameter(self.coef_size) for _ in range(self.Ns)]
         # A = self.opti.variable(3)         # NOTE these are only necessary when using PPO as value function
         # self.opti.subject_to(-1<=(A<=1))
 
-        timestep = self.opti.parameter(1,1)
-        u_samples = [self.opti.parameter(self.nu, self.Np) for _ in range(self.Ns)]
-        p_samples = [self.opti.parameter(p.shape[0], self.Np) for _ in range(self.Ns)]
+        self.timestep = self.opti.parameter(1,1)
+        self.u_samples = [self.opti.parameter(self.nu, self.Np) for _ in range(self.Ns)]
+        self.p_samples = [self.opti.parameter(p.shape[0], self.Np) for _ in range(self.Ns)]
 
         # Initial parameter values
-        x0 = self.opti.parameter(self.nx, 1)  # Initial state
-        init_u = self.opti.parameter(self.nu, 1)  # Initial control input
-        ds = self.opti.parameter(self.nd, self.Np+1) # Disturbance Variables
+        self.x0 = self.opti.parameter(self.nx, 1)  # Initial state
+        self.init_u = self.opti.parameter(self.nu, 1)  # Initial control input
+        self.ds = self.opti.parameter(self.nd, self.Np+1) # Disturbance Variables
 
         # Terminal constraint for the state
-        terminal_xs = [self.opti.parameter(self.nx, 1) for _ in range(self.Ns)]
+        self.terminal_xs = [self.opti.parameter(self.nx, 1) for _ in range(self.Ns)]
 
-        for i, xs in enumerate(xs_list):
-            self.opti.subject_to(0.95*terminal_xs[i] <= (xs[:,-1]  <= 1.05*terminal_xs[i]))
+        for i, xs in enumerate(self.xs_list):
+            self.opti.subject_to(0.95*self.terminal_xs[i] <= (xs[:,-1]  <= 1.05*self.terminal_xs[i]))
 
 
         # Define cost function
@@ -303,16 +385,16 @@ class RLSMPC(SMPC):
 
         # Set Constraints and Cost Function
         for i in range(self.Ns):
-            xs = xs_list[i]
-            ys = ys_list[i]
-            ps = p_samples[i]
-            us = u_samples[i]
-            TAYLOR_COEFS = TAYLOR_COEFS_samples[i]
+            xs = self.xs_list[i]
+            ys = self.ys_list[i]
+            ps = self.p_samples[i]
+            us = self.u_samples[i]
+            TAYLOR_COEFS = self.TAYLOR_COEFS_samples[i]
             P = Ps[i]
 
-            self.opti.subject_to(xs[:,0] == x0)
+            self.opti.subject_to(xs[:,0] == self.x0)
             
-            OBS = ca.vertcat(ys[0, -1], timestep+self.Np)
+            OBS = ca.vertcat(ys[0, -1], self.timestep+self.Np)
             OBS_NORM = self.opti.variable(2)
             self.opti.subject_to(
                 OBS_NORM == self.normalizeState_casadi(
@@ -324,10 +406,10 @@ class RLSMPC(SMPC):
 
             for ll in range(0, self.Np):
                 pk = ps[:, ll]
-                uk = us[:, ll] + theta[:, ll]
+                uk = us[:, ll] + self.theta[:, ll]
 
                 # System dynamics and input constraints
-                self.opti.subject_to(xs[:, ll+1] == self.F(xs[:, ll], uk, ds[:, ll], pk))
+                self.opti.subject_to(xs[:, ll+1] == self.F(xs[:, ll], uk, self.ds[:, ll], pk))
                 self.opti.subject_to(ys[:, ll] == self.g(xs[:, ll+1]))
                 self.opti.subject_to(self.u_min <= (uk <= self.u_max))
 
@@ -347,7 +429,7 @@ class RLSMPC(SMPC):
 
                 # Input rate constraint
                 if ll < self.Np-1:
-                    self.opti.subject_to(-self.du_max <= ((us[:, ll+1] + theta[:, ll+1]) - uk <=self.du_max))
+                    self.opti.subject_to(-self.du_max <= ((us[:, ll+1] + self.theta[:, ll+1]) - uk <=self.du_max))
 
             # Value Function insertion
             if self.use_trained_vf:
@@ -359,32 +441,19 @@ class RLSMPC(SMPC):
             #     self.opti.subject_to(OBS[0] - ys[0,-1] == 0)
             #     self.opti.subject_to(OBS[1:4] - ys[1:,-1] == 0)
             #     self.opti.subject_to(OBS[4:7] - us[:,-1] == 0)
-            #     self.opti.subject_to(OBS[7] - timestep + self.Np == 0)
-            #     self.opti.subject_to(OBS[8:] - ds[0:,-1] == 0)
+            #     self.opti.subject_to(OBS[7] - self.timestep + self.Np == 0)
+            #     self.opti.subject_to(OBS[8:] - self.ds[0:,-1] == 0)
             #     self.opti.subject_to(OBS_NORM == self.norm_obs_agent(OBS, self.mean, self.variance))
             #     J_terminal = self.qf_function(ca.vertcat(OBS_NORM, A))  
             J -= J_terminal
 
             # Constraints on intial state and input
-            self.opti.subject_to(-self.du_max <= ((us[:, 0] + theta[:, 0]) - init_u <= self.du_max))  
+            self.opti.subject_to(-self.du_max <= ((us[:, 0] + self.theta[:, 0]) - self.init_u <= self.du_max))  
 
         J = J / self.Ns
 
         self.opti.minimize(J)
         self.opti.solver('ipopt', self.nlp_opts)
-
-        self.MPC_func = self.opti.to_function(
-            "MPC_func",
-            [x0, ds, init_u, timestep, theta, *xs_list, *terminal_xs, *u_samples, *p_samples, *TAYLOR_COEFS_samples],
-            [theta, ca.vertcat(*xs_list), ca.vertcat(*ys_list), J],
-            ["x0", "ds", "init_u", "timestep", "theta_init"]+
-            [f"x_init_{i}" for i in range(self.Ns)] +       # initial guess for x
-            [f"x_terminal_{i}" for i in range(self.Ns)] +   # terminal constraints for x
-            [f"u_sample_{i}" for i in range(self.Ns)] +     # u samples
-            [f"p_sample_{i}" for i in range(self.Ns)] +     # p samples
-            [f"taylor_coefs_{i}" for i in range(self.Ns)],  # taylor coefficients
-            ["theta_opt", "xs_opt", "ys_opt", "J"]
-        )
 
     def compute_control_input(self, xs, ll, us, os_y, os_u, theta, jac_y_full, jac_input_full, u_prev):
         """
@@ -681,6 +750,7 @@ class Experiment:
         self.rewards = np.zeros((1, mpc.N))
         self.penalties = np.zeros((1, mpc.N))
         self.econ_rewards = np.zeros((1, mpc.N))
+        self.exit_message = np.zeros((1, mpc.N))
 
     def generate_psamples(self) -> List[np.ndarray]:
         """
@@ -815,7 +885,6 @@ class Experiment:
 
         return taylor_coefficients
 
-
     def solve_nsmpc(self, order: str) -> None:
         """
         Solve the nonlinear Reinforcement Learning Stochastic Model Predictive Control (RL-SMPC) problem.
@@ -861,7 +930,6 @@ class Experiment:
             # Get Taylor coefficients for all samples
             taylor_coefficients = self.get_taylor_coefficients(end_points)
 
-            # Convert inputs to CasADi DM format; NOTE is this required??
             ds = self.d[:, ll:ll+self.mpc.Np+1]
             timestep = [ll]
 
@@ -870,18 +938,19 @@ class Experiment:
 
             # Call MPC function with all inputs as CasADi DM
             if order == "zero":
-                theta_opt, xs_opt, ys_opt, J_mpc_1 = self.mpc.MPC_func(
-                    self.x[:, ll],          # initial state
-                    ds,                     # disturbances
-                    self.u[:, ll],          # initial input
-                    timestep,               # current timestep
-                    theta_init,             # initial guess for theta
-                    *xk_samples,            # initial guess for states
-                    *terminal_xs,           # terminal state constraint
-                    *uk_samples,            # input samples
-                    *p_sample_list,          # parameter samples
-                    *taylor_coefficients    # taylor coefficients for value function approximation
-                )
+                xs_opt, ys_opt, theta_opt, J_mpc_1, exit_message = \
+                    self.mpc.solve_ocp(
+                        self.x[:, ll], 
+                        self.u[:,ll],
+                        ds,
+                        timestep,
+                        theta_init,
+                        xk_samples,
+                        terminal_xs,
+                        uk_samples,
+                        p_samples,
+                        taylor_coefficients
+                    )
 
             elif order == "first":
                 theta_opt, xs_opt, ys_opt, J_mpc_1 = self.mpc.MPC_func(
@@ -902,23 +971,9 @@ class Experiment:
                 )
 
             # Since the first RL sample always depends on x0 all the samples input (u) at t=0 will the same;
-            if order == "zero":
-                us_opt = uk_samples[0][:,0] + theta_opt[:, 0]
-
-            elif order == "first":
-                jac_y_matrix = jacobian_obs_state_samples[0][:,:self.mpc.ny]
-                jac_input_matrix = jacobian_obs_input_samples[0][:,:self.mpc.nu]
-
-                obs_y = self.mpc.g(self.x[:, ll])
-                obs_norm_y = self.mpc.norm_obs_agent(obs_y, self.mpc.mean[:self.mpc.ny], self.mpc.variance[:self.mpc.ny])
-                obs_u = self.u[:, ll]
-                obs_norm_u = self.mpc.norm_obs_agent(obs_u, self.mpc.mean[self.mpc.ny:self.mpc.ny+self.mpc.nu], self.mpc.variance[self.mpc.ny:self.mpc.ny+self.mpc.nu])
-
-                # Compute control input
-                us_opt = uk_samples[0][:, 0] + ca.mtimes(jac_y_matrix, (obs_norm_y_samples[0][:, 0] - obs_norm_y)) + \
-                    ca.mtimes(jac_input_matrix, obs_norm_input_samples[0][:, 0] - obs_norm_u) + theta_opt[:, 0]
-
-            self.u[:, ll+1] = us_opt.toarray().ravel()
+            # Additionally, the first order approximation does not require to be used in the first iteration
+            us_opt = uk_samples[0][:,0] + theta_opt[:, 0]
+            self.u[:, ll+1] = us_opt
 
             theta_init = np.concatenate([theta_opt[:, 1:], ca.reshape(theta_opt[:, -1], (self.mpc.nu, 1))], axis=1)
 
@@ -931,7 +986,7 @@ class Experiment:
             delta_dw = self.x[0, ll+1] - self.x[0, ll]
             econ_rew = compute_economic_reward(delta_dw, get_parameters(), self.mpc.dt, self.u[:, ll+1])
             penalties = self.mpc.compute_penalties(self.y[:, ll+1])
-            self.update_results(us_opt, J_mpc_1, [], econ_rew, penalties, ll)
+            self.update_results(us_opt.reshape(-1,1), J_mpc_1, [], econ_rew, penalties, ll, exit_message=exit_message)
 
     def solve_smpc_OL_predictions(self, order) -> None:
         """Solve the nonlinear Stochastic MPC problem.
@@ -973,18 +1028,19 @@ class Experiment:
 
             # Call MPC function with all inputs as CasADi DM
             if order == "zero":
-                theta_opt, xs_opt, ys_opt, J_mpc_1 = self.mpc.MPC_func(
-                    self.x[:, ll],          # initial state
-                    ds,                     # disturbances
-                    self.u[:, ll],          # initial input
-                    timestep,               # current timestep
-                    theta_init,             # initial guess for theta
-                    *xk_samples,            # initial guess for states
-                    *terminal_xs,           # terminal state constraint
-                    *uk_samples,            # input samples
-                    *p_sample_list,          # parameter samples
-                    *taylor_coefficients    # taylor coefficients for value function approximation
-                )
+                xs_opt, ys_opt, theta_opt, J_mpc_1, exit_message = \
+                    self.mpc.solve_ocp(
+                        self.x[:, ll], 
+                        self.u[:,ll],
+                        ds,
+                        timestep,
+                        theta_init,
+                        xk_samples,
+                        terminal_xs,
+                        uk_samples,
+                        p_samples,
+                        taylor_coefficients
+                    )
 
             elif order == "first":
                 theta_opt, xs_opt, ys_opt, J_mpc_1 = self.mpc.MPC_func(
@@ -1011,7 +1067,6 @@ class Experiment:
             elif order == "first":
                 jac_y_matrix = jacobian_obs_state_samples[0][:,:self.mpc.ny]
                 jac_input_matrix = jacobian_obs_input_samples[0][:,:self.mpc.nu]
-
                 obs_y = self.mpc.g(self.x[:, ll])
                 obs_norm_y = self.mpc.norm_obs_agent(obs_y, self.mpc.mean[:self.mpc.ny], self.mpc.variance[:self.mpc.ny])
                 obs_u = self.u[:, ll]
@@ -1089,7 +1144,7 @@ class Experiment:
         print(f"Open-loop predictions saved to {save_path}")
 
 
-    def update_results(self, us_opt, Js_opt, sol, eco_rew, penalties, ll):
+    def update_results(self, us_opt, Js_opt, sol, eco_rew, penalties, ll, exit_message=None):
         """
         Args:
             uopt (_type_): _description_
@@ -1097,15 +1152,29 @@ class Experiment:
             output (_type_): _description_
             ll (_type_): _description_
         """
+        if exit_message == "Solve_Succeeded" or exit_message == "Solved_To_Acceptable_Level":
+            exit_message = 0
+        else:
+            exit_message = 1
+
         self.uopt[:,:, ll] = us_opt
         self.J[:, ll] = Js_opt
         self.output.append(sol)
         self.econ_rewards[:, ll] = eco_rew
         self.penalties[:, ll] = penalties
         self.rewards[:, ll] = eco_rew - penalties
+        self.exit_message[:, ll] = exit_message
 
-
-    def get_results(self, run):
+    def get_results(self, run) -> np.ndarray:
+        """
+        Returns an array with the closed-loop trajectories of the simulation run.
+        Adds the run ID to the last column of the array.
+        Additionally saves performance metrics such as cost, rewards, and penalties.
+        Args:
+            run (int): The run ID for the simulation.
+        Returns:
+            np.ndarray: A 2D array containing the closed-loop trajectories and performance metrics.
+        """
         # Transform weather variables to the right units 
         self.d[1, :] = co2dens2ppm(self.d[2, :], self.d[1, :])
         self.d[3, :] = vaporDens2rh(self.d[2, :], self.d[3, :])
@@ -1141,7 +1210,16 @@ class Experiment:
         # Stack all arrays vertically
         return np.vstack(arrays).T
 
-    def retrieve_results(self, run=0):
+    def retrieve_results(self, run=0) -> pd.DataFrame:
+        """
+        Creates a pandas dataframe with the closed-loop trajectories of the simulation run.
+        Adds the run ID to the last column of the dataframe.
+        Additionally saves performance metrics such as cost, rewards, and penalties.
+        Args:
+            run (int): The run ID for the simulation.
+        Returns:
+            pd.DataFrame: A dataframe containing the closed-loop trajectories and performance metrics.
+        """
         data = {}
         # transform the weather variables to the right units
         self.d[1, :] = co2dens2ppm(self.d[2, :], self.d[1, :])
@@ -1162,35 +1240,20 @@ class Experiment:
         data["econ_rewards"] = self.econ_rewards.flatten()
         data["penalties"] = self.penalties.flatten()
         data["rewards"] = self.rewards.flatten()
+        data["solver_success"] = self.exit_message.flatten()
 
         df = pd.DataFrame(data, columns=data.keys())
         df['run'] = run
         return df
 
-    def save_results(self, save_path, run=0):
+    def save_results(self, save_path):
         """
+        Saves the results of a single run experiment into a CSV file.
+        Args:
+            save_path (str): The path where the results will be saved.
         """
-        data = {}
-        # transform the weather variables to the right units
-        self.d[1, :] = co2dens2ppm(self.d[2, :], self.d[1, :])
-        self.d[3, :] = vaporDens2rh(self.d[2, :], self.d[3, :])
-        data["time"] = self.mpc.t / 86400
-        for i in range(self.x.shape[0]):
-            data[f"x_{i}"] = self.x[i, :self.mpc.N]
-        for i in range(self.y.shape[0]):
-            data[f"y_{i}"] = self.y[i, :self.mpc.N]
-        for i in range(self.u.shape[0]):
-            data[f"u_{i}"] = self.u[i, 1:]
-        for i in range(self.d.shape[0]):
-            data[f"d_{i}"] = self.d[i, :self.mpc.N]
-        data["J"] = self.J.flatten()
-        data["econ_rewards"] = self.econ_rewards.flatten()
-        data["penalties"] = self.penalties.flatten()
-        data["rewards"] = self.rewards.flatten()    
-
-        df = pd.DataFrame(data, columns=data.keys())
-        df['run'] = run
-        df.to_csv(f"{save_path}/{self.save_name}.csv", index=False)
+        df = self.retrieve_results()
+        df.to_csv(f"{save_path}/{self.save_name}", index=False)
 
 
 def create_rl_smpc(
@@ -1202,6 +1265,7 @@ def create_rl_smpc(
         env_path, 
         rl_model_path, 
         vf_path,
+        run,
         use_trained_vf=True 
     ):
     """Creates a Reinforcement Learning Stochastic Model Predictive Controller (RL-SMPC).
@@ -1233,7 +1297,7 @@ def create_rl_smpc(
         rl_model_path,
         use_trained_vf=use_trained_vf,
         vf_path=vf_path,
-        run=0,
+        run=run,
     )
 
 def load_experiment_parameters(project, env_id, algorithm, mode, model_name, uncertainty_value):
