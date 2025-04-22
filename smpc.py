@@ -18,7 +18,6 @@ from common.utils import (
     vaporDens2rh
 )
 
-
 class SMPC:
     """
     A class to represent a Model Predictive Controller (SMPC) for nonlinear systems.
@@ -130,6 +129,36 @@ class SMPC:
         # initial values of the decision variables (control signals) in the optimization
         self.u0 = np.zeros((self.nu, self.Np)) # this can be moved to the shooting function method.
 
+    def solve_ocp(self, x0, u0, ds, p_samples):
+        """
+        Sets solver values for the optimization problem.
+        This function initializes various parameters and values required for the scenario-based
+        Model Predictive Control (MPC) solver, including initial states, control inputs, and weather trajectory.
+
+        """
+        self.opti.set_value(self.x0, x0)
+        self.opti.set_value(self.init_u, u0)
+        self.opti.set_value(self.ds, ds)
+
+        for i, p_sample in enumerate(self.p_samples):
+            self.opti.set_value(p_sample, p_samples[i].T)
+
+        try:
+            solution = self.opti.solve()
+        except RuntimeError as err:
+            # Recover from the failed solve: you might use the last iterate available via opti.debug
+            print("Solver failed with error:", err)
+            solution = self.opti.debug  # Returns the current iterate even if not converged
+
+        exit_message = solution.stats()['return_status']
+        xs_opt = [solution.value(self.xs_list[i]) for i in range(self.Ns)]
+        ys_opt = [solution.value(self.ys_list[i]) for i in range(self.Ns)]
+        us = solution.value(self.us)
+        J = solution.value(self.opti.f)
+
+        return xs_opt, ys_opt, us, J, exit_message
+
+
     def define_nlp(self, p: Dict[str, Any]) -> None:
         """
         Define the optimization problem for the nonlinear SMPC using CasADi's Opti stack.
@@ -142,17 +171,17 @@ class SMPC:
         num_penalties = 6
 
         # Decision Variables (Control inputs, slack variables, states, outputs)
-        us = self.opti.variable(self.nu, self.Np)  # Control inputs (nu x Np)
-        xs_list = [self.opti.variable(self.nx, self.Np+1) for _ in range(self.Ns)]
-        ys_list = [self.opti.variable(self.ny, self.Np) for _ in range(self.Ns)]
+        self.us = self.opti.variable(self.nu, self.Np)  # Control inputs (nu x Np)
+        self.xs_list = [self.opti.variable(self.nx, self.Np+1) for _ in range(self.Ns)]
+        self.ys_list = [self.opti.variable(self.ny, self.Np) for _ in range(self.Ns)]
         Ps     = [self.opti.variable(num_penalties, self.Np) for _ in range(self.Ns)]
 
 
         # Parameters
-        p_samples = [self.opti.parameter(p.shape[0], self.Np) for _ in range(self.Ns)]
-        x0 = self.opti.parameter(self.nx, 1)  # Initial state
-        ds = self.opti.parameter(self.nd, self.Np)  # Disturbances
-        init_u = self.opti.parameter(self.nu, 1)  # Initial control input
+        self.p_samples = [self.opti.parameter(p.shape[0], self.Np) for _ in range(self.Ns)]
+        self.x0 = self.opti.parameter(self.nx, 1)  # Initial state
+        self.ds = self.opti.parameter(self.nd, self.Np)  # Disturbances
+        self.init_u = self.opti.parameter(self.nu, 1)  # Initial control input
 
         # self.opti.set_value(x0, self.x_initial)
         # self.opti.set_value(init_u, self.u_initial)
@@ -160,19 +189,19 @@ class SMPC:
 
         Js = 0
         for i in range(self.Ns):
-            xs = xs_list[i]
-            ys = ys_list[i]
-            ps = p_samples[i]
+            xs = self.xs_list[i]
+            ys = self.ys_list[i]
+            ps = self.p_samples[i]
             P = Ps[i]
 
-            self.opti.subject_to(xs[:,0] == x0)     # Initial Condition Constraint
+            self.opti.subject_to(xs[:,0] == self.x0)     # Initial Condition Constraint
 
             for ll in range(self.Np):
                 pk = ps[:, ll]
 
-                self.opti.subject_to(xs[:, ll+1] == self.F(xs[:, ll], us[:, ll], ds[:, ll], pk))
+                self.opti.subject_to(xs[:, ll+1] == self.F(xs[:, ll], self.us[:, ll], self.ds[:, ll], pk))
                 self.opti.subject_to(ys[:, ll] == self.g(xs[:, ll+1]))
-                self.opti.subject_to(self.u_min <= (us[:,ll] <= self.u_max))                   # Input   Contraints
+                self.opti.subject_to(self.u_min <= (self.us[:,ll] <= self.u_max))                   # Input   Contraints
 
                 self.opti.subject_to(P[:, ll] >= 0)
                 self.opti.subject_to(P[0, ll] >= self.lb_pen_w[0,0] * (self.y_min[1] - ys[1, ll]))
@@ -184,25 +213,18 @@ class SMPC:
 
                 # COST FUNCTION WITH PENALTIES
                 delta_dw = xs[0, ll+1] - xs[0, ll]
-                Js -= compute_economic_reward(delta_dw, p, self.dt, us[:,ll])
+                Js -= compute_economic_reward(delta_dw, p, self.dt, self.us[:,ll])
                 Js += (P[0, ll]+ P[1, ll]+P[2, ll]+P[3, ll]+P[4, ll]+P[5, ll])
 
                 if ll < self.Np-1:
-                    self.opti.subject_to(-self.du_max<=(us[:,ll+1] - us[:,ll]<=self.du_max))     # Change in input Constraint
+                    self.opti.subject_to(-self.du_max<=(self.us[:,ll+1] - self.us[:,ll]<=self.du_max))     # Change in input Constraint
 
         Js = Js / self.Ns
 
-        self.opti.subject_to(-self.du_max <= (us[:,0] - init_u <= self.du_max))  
+        self.opti.subject_to(-self.du_max <= (self.us[:,0] - self.init_u <= self.du_max))  
         self.opti.minimize(Js)
 
         self.opti.solver('ipopt', self.nlp_opts)
-        self.SMPC_func = self.opti.to_function(
-            'SMPC_func',
-            [x0, ds, init_u, *p_samples],
-            [us, ca.vertcat(*xs_list), ca.vertcat(*ys_list), Js],
-            ['x0','ds','u0'] + [f"p_sample_{i}" for i in range(self.Ns)], 
-            ['u_opt', 'x_opt_all', 'y_opt_all', 'J_opt'],
-        )
 
     def constraint_violation(self, y: np.ndarray):
         """
@@ -295,6 +317,7 @@ class Experiment:
         self.penalties = np.zeros((1, mpc.N))
         self.econ_rewards = np.zeros((1, mpc.N))
         self.rewards = np.zeros((1, mpc.N))
+        self.exit_message = np.zeros((1, mpc.N))
 
     def generate_psamples(self) -> List[np.ndarray]:
         """
@@ -331,26 +354,19 @@ class Experiment:
             p (Dict[str, Any]): the model parameters
 
         Returns:
-            np.ndarray: the optimal control inputs
-            float: the cost value
-            np.ndarray: the constraints
-            Dict[str, Any]: the optimization output
-            np.ndarray: the control input changes
-            np.ndarray: the gradient of the cost function
-            np.ndarray: the hessian of the cost function
+            None
         """
         for ll in tqdm(range(self.mpc.N)):
             p_samples = self.generate_psamples()
 
-            # we have to transpose p_samples since MPC_func expects matrix of shape (n_params, Np)
-            p_sample_list = [p_samples[i].T for i in range(self.mpc.Ns)]
-            us_opt, xs_opt, ys_opt, J_opt = self.mpc.SMPC_func(
+            xs_opt, ys_opt, us_opt, J_opt, exit_message = self.mpc.solve_ocp(
                 self.x[:, ll],
-                self.d[:, ll:ll+self.mpc.Np], 
-                self.u[:, ll], 
-                *p_sample_list
+                self.u[:, ll],
+                self.d[:, ll:ll+self.mpc.Np],
+                p_samples
             )
-            self.u[:, ll+1] = us_opt[:, 0].toarray().ravel()
+
+            self.u[:, ll+1] = us_opt[:, 0]
 
             params = parametric_uncertainty(self.p, self.uncertainty_value, self.rng)
 
@@ -361,7 +377,7 @@ class Experiment:
             econ_rew = compute_economic_reward(delta_dw, get_parameters(), self.mpc.dt, self.u[:, ll+1])
             penalties = self.mpc.compute_penalties(self.y[:, ll+1])
 
-            self.update_results(us_opt, J_opt, [], econ_rew, penalties, ll)
+            self.update_results(us_opt, J_opt, [], econ_rew, penalties, ll, exit_message=exit_message)
 
     def solve_smpc_OL_predictions(self) -> None:
         """Solve the nonlinear Stochastic MPC problem.
@@ -454,8 +470,7 @@ class Experiment:
         )
         print(f"Open-loop predictions saved to {save_path}")
 
-
-    def update_results(self, us_opt, Js_opt, sol, eco_rew, penalties, step):
+    def update_results(self, us_opt, Js_opt, sol, eco_rew, penalties, step, exit_message=None):
         """
         Args:
             uopt (_type_): _description_
@@ -463,14 +478,29 @@ class Experiment:
             output (_type_): _description_
             step (_type_): _description_
         """
+        if exit_message == "Solve_Succeeded" or exit_message == "Solved_To_Acceptable_Level":
+            exit_message = 0
+        else:
+            exit_message = 1
         self.uopt[:,:, step] = us_opt
         self.J[:, step] = Js_opt
         self.output.append(sol)
         self.econ_rewards[:, step] = eco_rew
         self.penalties[:, step] = penalties
         self.rewards[:, step] = eco_rew - penalties
+        self.exit_message[:, step] = exit_message
 
     def get_results(self, run):
+        """
+        Returns an array with the closed-loop trajectories of the simulation run.
+        Adds the run ID to the last column of the array.
+        Additionally saves performance metrics such as cost, rewards, and penalties.
+        Args:
+            run (int): The run ID for the simulation.
+        Returns:
+            np.ndarray: A 2D array containing the closed-loop trajectories and performance metrics.
+        """
+
         # Transform weather variables to the right units 
         self.d[1, :] = co2dens2ppm(self.d[2, :], self.d[1, :])
         self.d[3, :] = vaporDens2rh(self.d[2, :], self.d[3, :])
@@ -507,6 +537,16 @@ class Experiment:
         return np.vstack(arrays).T
 
     def retrieve_results(self, run=0):
+        """
+        Creates a pandas dataframe with the closed-loop trajectories of the simulation run.
+        Adds the run ID to the last column of the dataframe.
+        Additionally saves performance metrics such as cost, rewards, and penalties.
+        Args:
+            run (int): The run ID for the simulation.
+        Returns:
+            pd.DataFrame: A dataframe containing the closed-loop trajectories and performance metrics.
+        """
+
         data = {}
         # transform the weather variables to the right units
         self.d[1, :] = co2dens2ppm(self.d[2, :], self.d[1, :])
@@ -520,23 +560,29 @@ class Experiment:
             data[f"u_{i}"] = self.u[i, 1:]
         for i in range(self.d.shape[0]):
             data[f"d_{i}"] = self.d[i, :self.mpc.N]
-        
+
         # for i in range(self.uopt.shape[0]):
         #     for j in range(self.uopt.shape[1]):
         #         data[f"uopt_{i}_{j}"] = self.uopt[i, j, :-1]
+
         data["J"] = self.J.flatten()
         data["econ_rewards"] = self.econ_rewards.flatten()
         data["penalties"] = self.penalties.flatten()
         data["rewards"] = self.rewards.flatten()
+        data["solver_success"] = self.exit_message.flatten()
 
         df = pd.DataFrame(data, columns=data.keys())
         df['run'] = run
         return df
 
-    def save_results(self, df, save_path, run=0):
+    def save_results(self, save_path):
         """
+        Saves the results of a single run experiment into a CSV file.
+        Args:
+            save_path (str): The path where the results will be saved.
         """
-        df.to_csv(f"{save_path}/{self.save_name}.csv", index=False)
+        df = self.retrieve_results()
+        df.to_csv(f"{save_path}/{self.save_name}", index=False)
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
