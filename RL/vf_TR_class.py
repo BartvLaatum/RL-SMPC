@@ -103,7 +103,8 @@ class value_function_TR():
     def learn(self, global_step = 0):
         
         for i, (inputs, outputs) in enumerate(self.data_loader_train, 0):
-
+            inputs = inputs.to("cuda")
+            outputs = outputs.to("cuda")
             obs =  inputs
             total_return =  outputs.unsqueeze(1).float()
 
@@ -135,9 +136,12 @@ class value_function_TR():
         value = self.neural_net(obs_tensor).detach().numpy()[0][0]
         return value 
     
-    def validate(self,global_step = 0):
+    def validate(self, global_step = 0):
         self.neural_net.eval()
         for i, (inputs, outputs) in enumerate(self.data_loader_validate,0):
+            inputs = inputs.to("cuda")
+            outputs = outputs.to("cuda")
+
             obs =  inputs
             total_return =  outputs.unsqueeze(1).float()  
             # Calculate TD error
@@ -160,17 +164,6 @@ class value_function_TR():
         
         train_values    = all_data[:split_point]
         validate_values = all_data[split_point:]
-        
-        device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-
-        def to_tensor(x):
-            if not torch.is_tensor(x):
-                return torch.tensor(x, dtype=torch.float32, device=device)
-            return x.to(device)
-
-        # Convert both inputs (keys) and targets (values) to tensors on the correct device
-        train_values = [(to_tensor(k), to_tensor(v)) for k, v in train_values]
-        validate_values = [(to_tensor(k), to_tensor(v)) for k, v in validate_values]
 
         self.train_data    = dict(train_values)
         self.validate_data = dict(validate_values)
@@ -193,7 +186,7 @@ class value_function_TR():
         for i in tqdm.tqdm(range(epochs)):
             self.learn(global_step = i*len(self.data_loader_train))
 
-        self.neural_net.eval()         
+        self.neural_net.eval()
         # self.writer.close() 
 
     # def sim_with_mpc(self,num_traj = 1, spread = 0.1):

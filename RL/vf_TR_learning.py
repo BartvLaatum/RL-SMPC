@@ -89,6 +89,7 @@ if __name__ == "__main__":
     print(f"Network device: {next(my_vf.neural_net.parameters()).device}")
     if torch.cuda.is_available():
         my_vf.neural_net.to('cuda')
+    print(f"Network device: {next(my_vf.neural_net.parameters()).device}")
 
     my_vf.values  = copy.deepcopy(my_value_function.values)
     my_vf.trajectories = copy.deepcopy(my_value_function.trajectories)
@@ -96,5 +97,5 @@ if __name__ == "__main__":
 
     # Create folders for export
     # current_day_time = datetime.datetime.now().strftime("%Y%m%d_%H%M")
-    # save_path = f"train_data/{args.project}/{args.algorithm}/{args.mode}/models/{args.model_name}/vf.zip"
-    # torch.save(my_vf.neural_net, save_path)
+    save_path = f"train_data/{args.project}/{args.algorithm}/{args.mode}/models/{args.model_name}/vf.zip"
+    torch.save(my_vf.neural_net, save_path)
