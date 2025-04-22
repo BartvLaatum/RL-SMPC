@@ -1,4 +1,4 @@
-from smpc_performance import load_data
+from visualisations.rl_smpc_performance import load_data
 import matplotlib.pyplot as plt
 import plot_config
 from matplotlib.lines import Line2D
