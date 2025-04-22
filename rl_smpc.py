@@ -1290,7 +1290,7 @@ def create_rl_smpc(
     Returns:
         RLSMPC: An initialized RL-SMPC controller instance
     """
-    mpc_rng = np.random.default_rng(42)
+    mpc_rng = np.random.default_rng(42 + run)
     mpc_params["rng"] = mpc_rng    
     mpc_params["Ns"] = 10
     mpc_params["Np"] = int(h * 3600 / env_params["dt"])

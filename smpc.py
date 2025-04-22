@@ -1,6 +1,8 @@
 import os
 import argparse
 from typing import Any, Dict, List
+from time import time
+
 from tqdm import tqdm
 import numpy as np
 import pandas as pd
@@ -143,12 +145,14 @@ class SMPC:
         for i, p_sample in enumerate(self.p_samples):
             self.opti.set_value(p_sample, p_samples[i].T)
 
+        start_time = time()
         try:
             solution = self.opti.solve()
         except RuntimeError as err:
             # Recover from the failed solve: you might use the last iterate available via opti.debug
             print("Solver failed with error:", err)
             solution = self.opti.debug  # Returns the current iterate even if not converged
+        solver_time = time() - start_time
 
         exit_message = solution.stats()['return_status']
         xs_opt = [solution.value(self.xs_list[i]) for i in range(self.Ns)]
@@ -156,7 +160,7 @@ class SMPC:
         us = solution.value(self.us)
         J = solution.value(self.opti.f)
 
-        return xs_opt, ys_opt, us, J, exit_message
+        return xs_opt, ys_opt, us, J, solver_time, exit_message
 
 
     def define_nlp(self, p: Dict[str, Any]) -> None:
@@ -317,6 +321,7 @@ class Experiment:
         self.penalties = np.zeros((1, mpc.N))
         self.econ_rewards = np.zeros((1, mpc.N))
         self.rewards = np.zeros((1, mpc.N))
+        self.solver_times = np.zeros((1, mpc.N))
         self.exit_message = np.zeros((1, mpc.N))
 
     def generate_psamples(self) -> List[np.ndarray]:
@@ -359,7 +364,7 @@ class Experiment:
         for ll in tqdm(range(self.mpc.N)):
             p_samples = self.generate_psamples()
 
-            xs_opt, ys_opt, us_opt, J_opt, exit_message = self.mpc.solve_ocp(
+            xs_opt, ys_opt, us_opt, J_opt, solver_time, exit_message = self.mpc.solve_ocp(
                 self.x[:, ll],
                 self.u[:, ll],
                 self.d[:, ll:ll+self.mpc.Np],
@@ -377,7 +382,7 @@ class Experiment:
             econ_rew = compute_economic_reward(delta_dw, get_parameters(), self.mpc.dt, self.u[:, ll+1])
             penalties = self.mpc.compute_penalties(self.y[:, ll+1])
 
-            self.update_results(us_opt, J_opt, [], econ_rew, penalties, ll, exit_message=exit_message)
+            self.update_results(us_opt, J_opt, [], econ_rew, penalties, ll, solver_time, exit_message=exit_message)
 
     def solve_smpc_OL_predictions(self) -> None:
         """Solve the nonlinear Stochastic MPC problem.
@@ -470,7 +475,7 @@ class Experiment:
         )
         print(f"Open-loop predictions saved to {save_path}")
 
-    def update_results(self, us_opt, Js_opt, sol, eco_rew, penalties, step, exit_message=None):
+    def update_results(self, us_opt, Js_opt, sol, eco_rew, penalties, step, solver_time, exit_message=None):
         """
         Args:
             uopt (_type_): _description_
@@ -488,6 +493,7 @@ class Experiment:
         self.econ_rewards[:, step] = eco_rew
         self.penalties[:, step] = penalties
         self.rewards[:, step] = eco_rew - penalties
+        self.solver_times[:, step] = solver_time
         self.exit_message[:, step] = exit_message
 
     def get_results(self, run):
@@ -531,6 +537,8 @@ class Experiment:
         arrays.append(self.econ_rewards.flatten())
         arrays.append(self.penalties.flatten()) 
         arrays.append(self.rewards.flatten())
+        arrays.append(self.solver_times.flatten())
+        arrays.append(self.exit_message.flatten())
         arrays.append(np.ones(self.mpc.N) * run)
 
         # Stack all arrays vertically
@@ -569,6 +577,7 @@ class Experiment:
         data["econ_rewards"] = self.econ_rewards.flatten()
         data["penalties"] = self.penalties.flatten()
         data["rewards"] = self.rewards.flatten()
+        data["solver_times"] = self.solver_times.flatten()
         data["solver_success"] = self.exit_message.flatten()
 
         df = pd.DataFrame(data, columns=data.keys())
