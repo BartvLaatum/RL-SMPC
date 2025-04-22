@@ -8,10 +8,9 @@ PROJECT="uncertainty-comparison"
 ENV_ID="LettuceGreenhouse" 
 ALGORITHM="sac"
 MODE="stochastic"
-UNCERTAINTY_VALUES=(0.15)
-MODEL_NAMES=("volcanic-valley-2")
-# UNCERTAINTY_VALUES=(0.05 0.15 0.2)
-# MODEL_NAMES=("worthy-cosmos-1" "volcanic-valley-2" "blooming-glade-3")
+UNCERTAINTY_VALUES=(0.025 0.05 0.075 0.1 0.125 0.15 0.175 0.2)
+MODEL_NAMES=("mild-rain-8" "worthy-cosmos-1" "rare-shadow-9" "restful-pyramid-7" \
+                "lyric-sky-10" "volcanic-valley-2" "peach-haze-11" "blooming-glade-3")
 
 # Loop through uncertainty values and model names
 for i in "${!UNCERTAINTY_VALUES[@]}"; do
@@ -20,15 +19,15 @@ for i in "${!UNCERTAINTY_VALUES[@]}"; do
 
     echo "Processing uncertainty value: $UNCERTAINTY_VALUE with model: $MODEL_NAME"
 
-    # # Evaluate RL agent
-    # echo "Evaluate RL agent..."
-    # python RL/evaluate_rl.py \
-    #     --project $PROJECT \
-    #     --model_name $MODEL_NAME \
-    #     --env_id $ENV_ID \
-    #     --algorithm $ALGORITHM \
-    #     --mode $MODE \
-    #     --uncertainty_value $UNCERTAINTY_VALUE
+    # Evaluate RL agent
+    echo "Evaluate RL agent..."
+    python RL/evaluate_rl.py \
+        --project $PROJECT \
+        --model_name $MODEL_NAME \
+        --env_id $ENV_ID \
+        --algorithm $ALGORITHM \
+        --mode $MODE \
+        --uncertainty_value $UNCERTAINTY_VALUE
 
     # First run value function training
     echo "Training value function..."
@@ -40,12 +39,14 @@ for i in "${!UNCERTAINTY_VALUES[@]}"; do
         --uncertainty_value $UNCERTAINTY_VALUE \
         --mode $MODE
 
-    # # Run MPC for horizons 1H-6H
-    # echo "Running MPC..."
-    # python experiments/horizon_mpc.py \
-    #     --project $PROJECT \
-    #     --env_id $ENV_ID \
-    #     --save_name mpc \
-    #     --mode $MODE \
-    #     --uncertainty_value $UNCERTAINTY_VALUE
+    # Run MPC for horizons 1H-6H
+    echo "Running MPC..."
+    python experiments/horizon_mpc.py \
+        --project $PROJECT \
+        --env_id $ENV_ID \
+        --save_name mpc \
+        --mode $MODE \
+        --uncertainty_value $UNCERTAINTY_VALUE
+
+
 done
