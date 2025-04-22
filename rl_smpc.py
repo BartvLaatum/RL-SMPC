@@ -2,6 +2,7 @@ import os
 import argparse
 from typing import Any, Dict, List, Tuple
 from tqdm import tqdm
+from time import time
 
 import numpy as np
 import pandas as pd
@@ -307,6 +308,7 @@ class RLSMPC(SMPC):
         for i, taylor_coeffs in enumerate(self.TAYLOR_COEFS_samples):
             self.opti.set_value(taylor_coeffs, taylor_coefficients[i])
 
+        start_time = time()
         # Solve the OCP for the given scenario
         try:
             solution = self.opti.solve()
@@ -314,15 +316,16 @@ class RLSMPC(SMPC):
             # Recover from the failed solve: you might use the last iterate available via opti.debug
             print("Solver failed with error:", err)
             solution = self.opti.debug  # Returns the current iterate even if not converged
+        solver_time = time() - start_time
 
-        exit_message = solution.stats()['return_status']
+        stats = solution.stats()
+        exit_message = stats['return_status']
         xs_opt = [solution.value(self.xs_list[i]) for i in range(self.Ns)]
         ys_opt = [solution.value(self.ys_list[i]) for i in range(self.Ns)]
         theta_opt = solution.value(self.theta)
         J = solution.value(self.opti.f)
 
-
-        return xs_opt, ys_opt, theta_opt, J, exit_message
+        return xs_opt, ys_opt, theta_opt, J, solver_time, exit_message
 
     def define_zero_order_snlp(self, p: np.ndarray) -> None:
         """
@@ -750,6 +753,7 @@ class Experiment:
         self.rewards = np.zeros((1, mpc.N))
         self.penalties = np.zeros((1, mpc.N))
         self.econ_rewards = np.zeros((1, mpc.N))
+        self.solver_times = np.zeros((1, mpc.N))
         self.exit_message = np.zeros((1, mpc.N))
 
     def generate_psamples(self) -> List[np.ndarray]:
@@ -938,7 +942,7 @@ class Experiment:
 
             # Call MPC function with all inputs as CasADi DM
             if order == "zero":
-                xs_opt, ys_opt, theta_opt, J_mpc_1, exit_message = \
+                xs_opt, ys_opt, theta_opt, J_mpc_1, solver_time, exit_message = \
                     self.mpc.solve_ocp(
                         self.x[:, ll], 
                         self.u[:,ll],
@@ -986,7 +990,7 @@ class Experiment:
             delta_dw = self.x[0, ll+1] - self.x[0, ll]
             econ_rew = compute_economic_reward(delta_dw, get_parameters(), self.mpc.dt, self.u[:, ll+1])
             penalties = self.mpc.compute_penalties(self.y[:, ll+1])
-            self.update_results(us_opt.reshape(-1,1), J_mpc_1, [], econ_rew, penalties, ll, exit_message=exit_message)
+            self.update_results(us_opt.reshape(-1,1), J_mpc_1, [], econ_rew, penalties, ll, solver_time, exit_message=exit_message)
 
     def solve_smpc_OL_predictions(self, order) -> None:
         """Solve the nonlinear Stochastic MPC problem.
@@ -1144,7 +1148,7 @@ class Experiment:
         print(f"Open-loop predictions saved to {save_path}")
 
 
-    def update_results(self, us_opt, Js_opt, sol, eco_rew, penalties, ll, exit_message=None):
+    def update_results(self, us_opt, Js_opt, sol, eco_rew, penalties, ll, solver_time, exit_message=None):
         """
         Args:
             uopt (_type_): _description_
@@ -1163,6 +1167,7 @@ class Experiment:
         self.econ_rewards[:, ll] = eco_rew
         self.penalties[:, ll] = penalties
         self.rewards[:, ll] = eco_rew - penalties
+        self.solver_times[:, ll] = solver_time
         self.exit_message[:, ll] = exit_message
 
     def get_results(self, run) -> np.ndarray:
@@ -1205,6 +1210,8 @@ class Experiment:
         arrays.append(self.econ_rewards.flatten())
         arrays.append(self.penalties.flatten()) 
         arrays.append(self.rewards.flatten())
+        arrays.append(self.solver_times.flatten())
+        arrays.append(self.exit_message.flatten())
         arrays.append(np.ones(self.mpc.N) * run)
 
         # Stack all arrays vertically
@@ -1240,6 +1247,7 @@ class Experiment:
         data["econ_rewards"] = self.econ_rewards.flatten()
         data["penalties"] = self.penalties.flatten()
         data["rewards"] = self.rewards.flatten()
+        data["solver_times"] = self.solver_times.flatten()
         data["solver_success"] = self.exit_message.flatten()
 
         df = pd.DataFrame(data, columns=data.keys())
@@ -1254,7 +1262,6 @@ class Experiment:
         """
         df = self.retrieve_results()
         df.to_csv(f"{save_path}/{self.save_name}", index=False)
-
 
 def create_rl_smpc(
         h, 
@@ -1302,7 +1309,7 @@ def create_rl_smpc(
 
 def load_experiment_parameters(project, env_id, algorithm, mode, model_name, uncertainty_value):
     """Load and prepare all parameters needed for the RL-SMPC experiment.
-    
+
     Args:
         project (str): Project name
         env_id (str): Environment identifier
@@ -1310,7 +1317,7 @@ def load_experiment_parameters(project, env_id, algorithm, mode, model_name, unc
         mode (str): Mode of operation ('deterministic' or 'stochastic')
         model_name (str): Name of the trained model
         uncertainty_value (float): Value for uncertainty parameter
-        
+
     Returns:
         tuple: Contains environment parameters, MPC parameters, RL environment parameters,
                 and paths to the trained models/environments
@@ -1334,7 +1341,6 @@ def load_experiment_parameters(project, env_id, algorithm, mode, model_name, unc
 
     return env_params, mpc_params, rl_env_params, env_path, rl_model_path, vf_path
 
-
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--project", type=str, default="matching-thesis")
@@ -1348,7 +1354,7 @@ if __name__ == "__main__":
     parser.add_argument("--mode", type=str, choices=['deterministic', 'stochastic'], required=True)
     parser.add_argument("--order", type=str, choices=["zero", "first"], required=True)
     args = parser.parse_args()
- 
+
     save_path = f"data/{args.project}/stochastic/rlsmpc"
     os.makedirs(save_path, exist_ok=True)
 
@@ -1372,7 +1378,7 @@ if __name__ == "__main__":
             rl_model_path,
             vf_path,
             args.used_trained_vf
-        )        
+        )
 
         if args.order == "zero":
             rl_mpc.define_zero_order_snlp(p)
