@@ -220,7 +220,7 @@ def create_plot(figure_name, project, data, horizons, model_names, mode, variabl
 
         n2plot = len(mean_rlmpc_final_rewards)
         if mean_rlmpc_final_rewards:
-            ax.plot(horizon_nums[:n2plot], mean_rlmpc_final_rewards[:n2plot], 'o-', label=r'RL$^1$-SMPC (terminal)', color=colors(color_counter))
+            ax.plot(horizon_nums[:n2plot], mean_rlmpc_final_rewards[:n2plot], 'o-', label=r'RL$^1$-SMPC', color=colors(color_counter))
             if mode == "stochastic":
                 ax.fill_between(
                     horizon_nums[:n2plot], 
