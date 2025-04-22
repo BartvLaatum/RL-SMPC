@@ -19,30 +19,16 @@ def main(args):
     save_path = f"data/{args.project}/stochastic/rlsmpc"
     os.makedirs(save_path, exist_ok=True)
 
-    # uncertainty_values = [
-    #     0.025, 0.05, 0.075, 0.1, \
-    #     0.125, 0.15, 0.175, 0.2
-    # ]
-    # model_names = [
-    #     "mild-rain-8", "worthy-cosmos-1", "rare-shadow-9", "restful-pyramid-7",\
-    #     "lyric-sky-10", "volcanic-valley-2", "peach-haze-11", "blooming-glade-3"
-    # ]
 
     col_names = [
         "time", "x_0", "x_1", "x_2", "x_3", "y_0", "y_1", "y_2", "y_3",
         "u_0", "u_1", "u_2", "d_0", "d_1", "d_2", "d_3", 
-        "J", "econ_rewards", "penalties", "rewards", "run"
+        "J", "econ_rewards", "penalties", "rewards", "solver_times", "solver_success", "run"
     ]
 
     H = [1, 2, 3, 4, 5, 6]
 
-    # # run the experiment
-    # for uncertainty_value, model_name in zip(uncertainty_values, model_names):
-
-        # already have 10 simulations for this one..
-        # if model_name == "restful-pyramid-7":
-        #     continue
-
+    # run the experiment
     print(f"Running experiment for delta = {args.uncertainty_value}")
     (env_params, mpc_params, rl_env_params, env_path, rl_model_path, vf_path) = \
         load_experiment_parameters(
@@ -58,7 +44,7 @@ def main(args):
         print(f"Running for prediction horizon {h} hours")
         save_name = f"{args.model_name}-{args.save_name}-{h}H-{args.uncertainty_value}.csv"
         p = get_parameters()
-
+        env_params["n_days"] = 1
         run_exp = partial(
             run_experiment, 
             h=h,
@@ -80,7 +66,6 @@ def main(args):
 
         for data in data_list:
             results.update_result(data)
-
         results.save(join(save_path, save_name))
 
 def run_experiment(
