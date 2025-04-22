@@ -396,6 +396,16 @@ class Experiment:
         self.exit_message[:, step] = exit_message
 
     def get_results(self, run):
+        """
+        Returns an array with the closed-loop trajectories of the simulation run.
+        Adds the run ID to the last column of the array.
+        Additionally saves performance metrics such as cost, rewards, and penalties.
+        Args:
+            run (int): The run ID for the simulation.
+        Returns:
+            np.ndarray: A 2D array containing the closed-loop trajectories and performance metrics.
+        """
+
         # Transform weather variables to the right units 
         self.d[1, :] = co2dens2ppm(self.d[2, :], self.d[1, :])
         self.d[3, :] = vaporDens2rh(self.d[2, :], self.d[3, :])
@@ -432,6 +442,15 @@ class Experiment:
         return np.vstack(arrays).T
 
     def retrieve_results(self, run=0):
+        """
+        Creates a pandas dataframe with the closed-loop trajectories of the simulation run.
+        Adds the run ID to the last column of the dataframe.
+        Additionally saves performance metrics such as cost, rewards, and penalties.
+        Args:
+            run (int): The run ID for the simulation.
+        Returns:
+            pd.DataFrame: A dataframe containing the closed-loop trajectories and performance metrics.
+        """
         data = {}
         # transform the weather variables to the right units
         self.d[1, :] = co2dens2ppm(self.d[2, :], self.d[1, :])
@@ -461,6 +480,9 @@ class Experiment:
 
     def save_results(self, save_path):
         """
+        Saves the results of a single run experiment into a CSV file.
+        Args:
+            save_path (str): The path where the results will be saved.
         """
         df = self.retrieve_results()
         df.to_csv(f"{save_path}/{self.save_name}", index=False)
