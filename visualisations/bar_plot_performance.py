@@ -1,4 +1,4 @@
-from smpc_performance import load_data
+from visualisations.rl_smpc_performance import load_data
 import numpy as np
 import matplotlib.pyplot as plt
 import plot_config
