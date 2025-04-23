@@ -16,7 +16,7 @@ N_SIMS = 10
 def main(args):
     ctx = multiprocessing.get_context("spawn")
 
-    save_path = f"data/{args.project}/stochastic/rlsmpc"
+    save_path = f"data/{args.project}/stochastic/smpc"
     os.makedirs(save_path, exist_ok=True)
 
     col_names = [
@@ -49,7 +49,7 @@ def main(args):
             save_name=save_name, 
         )
 
-        num_processes = 10
+        num_processes = 5
         with ctx.Pool(processes=num_processes) as pool:
             data_list = list(tqdm(pool.imap(run_exp, range(N_SIMS)), total=N_SIMS))
 
@@ -69,11 +69,11 @@ def run_experiment(
     ):
 
     # Add a small delay based on run ID to avoid resource contention
-    mpc_rng = np.random.default_rng(42 + run)
+    smpc_rng = np.random.default_rng(42 + run)
     save_name = f"{args.save_name}-{h}H-{mpc_params['Ns']}Ns-{args.uncertainty_value}"
-    mpc_params["rng"] = mpc_rng
+    mpc_params["rng"] = smpc_rng
+    mpc_params["Np"] = int(h * 3600 / env_params["dt"])
 
-    # p = DefineParameters()
     p = get_parameters()
     smpc = SMPC(**env_params, **mpc_params)
 
