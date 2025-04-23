@@ -60,7 +60,7 @@ def main(args):
             save_name=save_name, 
         )
 
-        num_processes = 10
+        num_processes = 5
         with ctx.Pool(processes=num_processes) as pool:
             data_list = list(tqdm(pool.imap(run_exp, range(N_SIMS)), total=N_SIMS))
 
