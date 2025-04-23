@@ -28,7 +28,7 @@ for i in "${!uncertainty_values[@]}"; do
         --env_id $ENV_ID \
         --model_name $MODEL_NAME \
         --algorithm $ALGORITHM \
-        --save_name zero-order-terminal \
+        --save_name zero-order-terminal-box-constraints \
         --mode $MODE \
         --uncertainty_value $UNCERTAINTY_VALUE \
         --use_trained_vf \
