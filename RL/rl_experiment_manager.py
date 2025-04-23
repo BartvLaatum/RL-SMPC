@@ -83,6 +83,7 @@ class RLExperimentManager:
         env_id,
         project,
         env_params,
+        eval_env_params,
         hyperparameters,
         group,
         n_eval_episodes,
@@ -119,6 +120,7 @@ class RLExperimentManager:
         self.env_id = env_id
         self.project = project
         self.env_params = env_params
+        self.eval_env_params = eval_env_params
         self.n_envs = hyperparameters["n_envs"]
         self.total_timesteps = hyperparameters["total_timesteps"]
         self.stochastic = stochastic
@@ -185,7 +187,7 @@ class RLExperimentManager:
 
         self.eval_env = make_vec_env(
             self.env_id,
-            self.env_params,
+            self.eval_env_params,
             seed=self.env_seed,
             n_envs=1,                               # Only one 'parallel' environment for evaluation at the moment
             monitor_filename=self.monitor_filename,
