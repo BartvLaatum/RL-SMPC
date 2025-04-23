@@ -19,6 +19,8 @@ if __name__ == "__main__":
     parser.add_argument("--device", type=str, default="cpu", help="The device to run the experiment on")
     parser.add_argument("--save_model", default=True, action=argparse.BooleanOptionalAction, help="Whether to save the model")
     parser.add_argument("--save_env", default=True, action=argparse.BooleanOptionalAction, help="Whether to save the environment")
+    parser.add_argument('--training_years', nargs='+', type=str, default=[],
+                        help="List of years to train on for weather trajectories")
     args = parser.parse_args()
 
     assert args.mode in ['deterministic', 'stochastic'], "Mode must be either 'deterministic' or 'stochastic'"
@@ -37,11 +39,18 @@ if __name__ == "__main__":
     hyperparameters, rl_env_params = load_rl_params(args.env_id, args.algorithm)
     env_params.update(rl_env_params)
     env_params["uncertainty_value"] = args.uncertainty_value
+    eval_env_params = env_params.copy()
+
+    if args.training_years:
+        weather_files = [f"train/KNMI{year}.csv" for year in args.training_years]
+        env_params["weather_filename"] = weather_files
+        
 
     experiment_manager = RLExperimentManager(
         env_id=args.env_id,
         project=args.project,
         env_params=env_params,
+        eval_env_params=eval_env_params,
         hyperparameters=hyperparameters,
         group=group,
         n_eval_episodes=args.n_eval_episodes,
@@ -50,6 +59,7 @@ if __name__ == "__main__":
         env_seed=args.env_seed,
         model_seed=args.model_seed,
         stochastic=True,
+        # weather_files=weather_files,
         save_model=args.save_model,
         save_env=args.save_env,
         device=args.device
