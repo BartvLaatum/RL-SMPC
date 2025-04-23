@@ -303,7 +303,7 @@ class LettuceGreenhouse(gym.Env):
     def set_seed(self, seed: int):
         self._np_random, seed = gym.utils.seeding.np_random(seed)
 
-    def reset(self, seed: int = 666):
+    def reset(self, seed: int | None = None):
         """
         Resets environment to starting state.
         Args:
@@ -320,7 +320,14 @@ class LettuceGreenhouse(gym.Env):
         self.x_prev = np.copy(self.x0)
         self.prev_dw = np.copy(self.x[0])
 
-        self.d = load_disturbances(self.weather_filename, self.L, self.start_day, self.dt , self.Np*2, self.nd)
+        # If we provide multiple weather files we randomly select one during training
+        if isinstance(self.weather_filename, list):
+            weather_filename = self._np_random.choice(self.weather_filename)
+        else:
+            weather_filename = self.weather_filename
+
+
+        self.d = load_disturbances(weather_filename, self.L, self.start_day, self.dt , self.Np*2, self.nd)
         self.y = self.get_y()
         self.y_prev = np.copy(self.y)
 
