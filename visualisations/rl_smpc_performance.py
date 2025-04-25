@@ -91,6 +91,7 @@ def load_data(
                     if h not in data['rl-zero-smpc']:
                         data['rl-zero-smpc'][h] = {}
                     # data['rl-zero-smpc'][h][model] = pd.read_csv(rlsmpc_path)
+                print(rlsmpc_terminal_path)
                 if terminal:
                     if os.path.exists(rlsmpc_terminal_path):
                         if h not in data['rl-zero-terminal-smpc']:
@@ -112,7 +113,7 @@ def load_data(
 
     for h in horizons:
         mpc_path = f'data/{project}/{mode}/mpc/mpc-{h}{uncertainty_suffix}.csv'
-        smpc_path = f'data/{project}/{mode}/smpc/warm-init-{h}-10Ns{uncertainty_suffix}.csv'
+        smpc_path = f'data/{project}/{mode}/smpc/smpc-noise-correction-{h}-{uncertainty_suffix}.csv'
 
         if h not in data['mpc'] and os.path.exists(mpc_path):
             data['mpc'][h] = pd.read_csv(mpc_path)

@@ -146,13 +146,13 @@ def create_plot(figure_name, project, data, horizons, model_names, mode, variabl
             std_mpc_final_rewards.append(cumulative_rewards.std())
 
     if mean_mpc_final_rewards:
-        ax.plot(horizon_nums, mean_mpc_final_rewards, 'o-', label='MPC', color=colors(color_counter))
+        ax.plot(horizon_nums, mean_mpc_final_rewards, 'o-', label='MPC', color="C0", alpha=0.8)
         if mode == "stochastic":
             ax.fill_between(
                 horizon_nums, 
                 np.array(mean_mpc_final_rewards) - np.array(std_mpc_final_rewards),
                 np.array(mean_mpc_final_rewards) + np.array(std_mpc_final_rewards),
-                color=colors(color_counter), alpha=0.2
+                color="C0", alpha=0.2
             )
         color_counter += 1
 
@@ -169,13 +169,13 @@ def create_plot(figure_name, project, data, horizons, model_names, mode, variabl
             std_smpc_final_rewards.append(cumulative_rewards.std())
     n2plot = len(mean_smpc_final_rewards)
     if mean_smpc_final_rewards:
-        ax.plot(horizon_nums[:n2plot], mean_smpc_final_rewards[:n2plot], 'o-', label=f'SMPC', color=colors(color_counter))
+        ax.plot(horizon_nums[:n2plot], mean_smpc_final_rewards[:n2plot], 'o-', label=f'SMPC', color="C8", alpha=0.8)
         if mode == "stochastic":
             ax.fill_between(
                 horizon_nums[:n2plot], 
                 np.array(mean_smpc_final_rewards[:n2plot]) - np.array(std_smpc_final_rewards[:n2plot]),
                 np.array(mean_smpc_final_rewards[:n2plot]) + np.array(std_smpc_final_rewards[:n2plot]),
-                color=colors(color_counter), alpha=0.3
+                color="C8", alpha=0.3
             )
         color_counter += 1
 
@@ -194,13 +194,13 @@ def create_plot(figure_name, project, data, horizons, model_names, mode, variabl
 
         n2plot = len(mean_rlmpc_final_rewards)
         if mean_rlmpc_final_rewards:
-            ax.plot(horizon_nums[:n2plot], mean_rlmpc_final_rewards[:n2plot], 'o-', label=r'RL$^0$-SMPC', color=colors(color_counter))
+            ax.plot(horizon_nums[:n2plot], mean_rlmpc_final_rewards[:n2plot], 'o-', label=r'RL$^0$-SMPC', color="C3", alpha=0.8)
             if mode == "stochastic":
                 ax.fill_between(
                     horizon_nums[:n2plot], 
                     np.array(mean_rlmpc_final_rewards[:n2plot]) - np.array(std_rlmpc_final_rewards[:n2plot]),
                     np.array(mean_rlmpc_final_rewards[:n2plot]) + np.array(std_rlmpc_final_rewards[:n2plot]),
-                    color=colors(color_counter), alpha=0.3
+                    color="C3", alpha=0.3
                 )
             color_counter += 1
 
@@ -260,7 +260,7 @@ def create_plot(figure_name, project, data, horizons, model_names, mode, variabl
             sum_rewards = data['rl'][model].groupby("run")[variable].sum()
             rl_final_reward = sum_rewards.mean()
             ax.hlines(rl_final_reward, min(horizon_nums), max(horizon_nums),
-                        label=f'RL', color=colors(color_counter), linestyle='--')
+                        label=f'RL', color="C7", linestyle='--', alpha=0.8)
         color_counter += 1
 
     ax.set_xlabel('Prediction Horizon (H)')

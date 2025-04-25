@@ -37,7 +37,7 @@ def plot_mpc_vs_rl_smpc(data, labels):
         avg_solver = []
         for h in horizons:
             # Sum rewards and compute average solver_success
-            sum_rewards.append(results[h]['rewards'].sum())
+            sum_rewards.append(results[h].groupby('run')['rewards'].sum().mean())
             avg_solver.append(results[h]['solver_success'].mean())
         
         # Choose marker (case-insensitive matching)
@@ -76,7 +76,7 @@ def bar_plot_solver_success(data, labels, colors):
 
     # Setup grouped bar plot
     x = np.arange(len(horizons))
-    bar_width = 0.2
+    bar_width = 0.35
 
     WIDTH = 87.5 * 0.03937
     HEIGHT = WIDTH * 0.75
@@ -127,8 +127,8 @@ def load_data():
 
     for h in horizons:
         mpc_file = f"{mpc_dir}/mpc-{h}H-0.1.csv"
-        mpc_clipped_file = f"{mpc_dir}/mpc-clipped-{h}H-0.1.csv"
-        rlsmpc_file = f"{rlsmpc_dir}/rl-smpc-{h}H-0.1.csv"
+        mpc_clipped_file = f"{mpc_dir}/mpc-box-constraints-{h}H-0.1.csv"
+        rlsmpc_file = f"{rlsmpc_dir}/box-constraints-{h}H-0.1.csv"
         smpc_file = f"{smpc_dir}/smpc-{h}H-0.1.csv"
         smpc_clipped_file = f"{smpc_dir}/smpc-clipped-{h}H-0.1.csv"
 
@@ -151,61 +151,29 @@ def load_data():
             data["smpc"][h] = pd.read_csv(smpc_file)
     return data
 
-def load_data_smpc():
-    data = {
-        "smpc-1e-6": {},
-        "smpc-1e-7": {},
-        "smpc-1e-8": {},
-        "smpc": {},
-    }
-    smpc_dir = 'data/solver-success-smpc/stochastic/smpc'
-    horizons = [1, 2, 3, 4, 5, 6]
-
-    for h in horizons:
-        # mpc_file = f"{mpc_dir}/mpc-{h}H-0.1.csv"
-        # rlsmpc_file = f"{rlsmpc_dir}/rl-smpc-{h}H-0.1.csv"
-        smpc_file = f"{smpc_dir}/smpc-{h}H-0.1.csv"
-        smpc_1_file = f"{smpc_dir}/smpc-1e-6-{h}H-0.1.csv"
-        smpc_2_file = f"{smpc_dir}/smpc-1e-7-{h}H-0.1.csv"
-        smpc_3_file = f"{smpc_dir}/smpc-1e-8-{h}H-0.1.csv"
-
-        if h not in data["smpc"] and os.path.exists(smpc_file):
-            data["smpc"][h] = pd.read_csv(smpc_file)
-
-        if h not in data["smpc-1e-6"] and os.path.exists(smpc_1_file):
-            data["smpc-1e-6"][h] = pd.read_csv(smpc_1_file)
-
-        if h not in data["smpc-1e-7"] and os.path.exists(smpc_2_file):
-            data["smpc-1e-7"][h] = pd.read_csv(smpc_2_file)
-
-        if h not in data["smpc-1e-8"] and os.path.exists(smpc_3_file):
-            data["smpc-1e-8"][h] = pd.read_csv(smpc_3_file)
-
-    return data
-
-
 def main():
     data = load_data()
 
     # comparison mpc and mpc-clipped
     subset_data = {
-        "mpc": data.get("mpc", {}),
-        "mpc-clipped": data.get("mpc-clipped", {})
+        "smpc": data.get("smpc", {}),
+        "smpc-clipped": data.get("smpc-clipped", {})
     }
-    labels = ["MPC", "MPC Box constraints"]
-    plot_mpc_vs_rl_smpc(subset_data, labels=labels)
+
+    labels = ["SMPC", "SMPC Box constraints"]
+    # plot_mpc_vs_rl_smpc(subset_data, labels=labels)
     bar_plot_solver_success(subset_data, labels, colors=["C0","C3"])
 
     # comparison s/mpc and s/mpc-clipped
     subset_data = {
-        # "mpc": data.get("mpc", {}),
-        # "mpc-clipped": data.get("mpc-clipped", {}),
-        "smpc": data.get("smpc", {}),
-        "smpc-clipped": data.get("smpc-clipped", {})
+        "mpc-clipped": data.get("mpc-clipped", {}),
+        "smpc-clipped": data.get("smpc-clipped", {}),
+        "RL-SMPC": data.get("rlsmpc", {}),
     }
-    labels = ["SMPC", "SMPC Box constraints"]
-    bar_plot_solver_success(subset_data, labels, colors=["C0", "C3"])
-    plot_mpc_vs_rl_smpc(subset_data, labels=labels)
+
+    labels = ["MPC", "SMPC", "RL-SMPC"]
+    # bar_plot_solver_success(subset_data, labels, colors=["C0", "C8", "C3"])
+    # plot_mpc_vs_rl_smpc(subset_data, labels=labels)
 
     # bar_plot_solver_success(data, ["MPC", r"RL$^0$-SMPC", "SMPC"], colors=["C0", "C3", "C2"])
     # data = load_data_smpc()

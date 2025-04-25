@@ -37,13 +37,12 @@ if __name__ == "__main__":
     p = get_parameters()
 
     Pred_H = [1, 2, 3, 4, 5, 6]
-    # Pred_H = [1]
     seed = 666
 
     col_names = [
         "time", "x_0", "x_1", "x_2", "x_3", "y_0", "y_1", "y_2", "y_3",
         "u_0", "u_1", "u_2", "d_0", "d_1", "d_2", "d_3", 
-        "J", "econ_rewards", "penalties", "rewards", "run"
+        "J", "econ_rewards", "penalties", "rewards", "solver_times", "solver_success", "run"
     ]
 
     for H in tqdm(Pred_H):
@@ -67,7 +66,7 @@ if __name__ == "__main__":
             exp.solve_nmpc()
             return exp.get_results(run)
 
-        with Pool(processes=10) as pool:
+        with Pool(processes=5) as pool:
             data_list = list(tqdm(pool.imap(run_experiment, range(N_sims)), total=N_sims))
 
         for data in data_list:

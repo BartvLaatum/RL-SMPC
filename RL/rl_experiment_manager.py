@@ -159,7 +159,6 @@ class RLExperimentManager:
 
             self.init_envs(self.hyperparameters["gamma"])
             self.model_params = self.build_model_parameters()
-            print(self.env.observation_space.shape)
             # Initialize the model
             self.initialise_model()
 
@@ -188,7 +187,7 @@ class RLExperimentManager:
         self.eval_env = make_vec_env(
             self.env_id,
             self.eval_env_params,
-            seed=self.env_seed,
+            seed=666,                               # Use different seed for the evaluation environment
             n_envs=1,                               # Only one 'parallel' environment for evaluation at the moment
             monitor_filename=self.monitor_filename,
             vec_norm_kwargs=vec_norm_kwargs,
@@ -407,8 +406,8 @@ if __name__ == "__main__":
     parser.add_argument("--group", type=str, default="group1", help="Wandb group name")
     parser.add_argument("--n_eval_episodes", type=int, default=1, help="Number of episodes to evaluate the agent for")
     parser.add_argument("--n_evals", type=int, default=5, help="Number times we evaluate algorithm during training")
-    parser.add_argument("--env_seed", type=int, default=666, help="Random seed for the environment for reproducibility")
-    parser.add_argument("--model_seed", type=int, default=666, help="Random seed for the RL-model for reproducibility")
+    parser.add_argument("--env_seed", type=int, default=42, help="Random seed for the environment for reproducibility")
+    parser.add_argument("--model_seed", type=int, default=42, help="Random seed for the RL-model for reproducibility")
     parser.add_argument("--stochastic", action="store_true", help="Whether to run the experiment in stochastic mode")
     parser.add_argument("--device", type=str, default="cpu", help="The device to run the experiment on")
     parser.add_argument("--save_model", default=True, action=argparse.BooleanOptionalAction, help="Whether to save the model")

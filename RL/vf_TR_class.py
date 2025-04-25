@@ -298,7 +298,7 @@ class value_function_TR():
             # at first simulation; start from initial conditions
             if t == 0:
                 # initial condtions
-                obs_now, _ = env.reset()
+                obs_now, _ = env.reset(seed=42)
                 x_now = env.get_numpy_state()
                 # u_opt = obs_now[4:7]
                 kk = 0

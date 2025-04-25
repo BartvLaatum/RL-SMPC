@@ -14,8 +14,8 @@ if __name__ == "__main__":
     parser.add_argument("--n_evals", type=int, default=10, help="Number times we evaluate algorithm during training")
     parser.add_argument("--mode", type=str, choices=['deterministic', 'stochastic'], required=True)
     parser.add_argument("--uncertainty_value", type=float, help="List of uncertainty scale values")
-    parser.add_argument("--env_seed", type=int, default=666, help="Random seed for the environment for reproducibility")
-    parser.add_argument("--model_seed", type=int, default=666, help="Random seed for the RL-model for reproducibility")
+    parser.add_argument("--env_seed", type=int, default=42, help="Random seed for the environment for reproducibility")
+    parser.add_argument("--model_seed", type=int, default=42, help="Random seed for the RL-model for reproducibility")
     parser.add_argument("--device", type=str, default="cpu", help="The device to run the experiment on")
     parser.add_argument("--save_model", default=True, action=argparse.BooleanOptionalAction, help="Whether to save the model")
     parser.add_argument("--save_env", default=True, action=argparse.BooleanOptionalAction, help="Whether to save the environment")
@@ -44,7 +44,8 @@ if __name__ == "__main__":
     if args.training_years:
         weather_files = [f"train/KNMI{year}.csv" for year in args.training_years]
         env_params["weather_filename"] = weather_files
-        
+        env_params["obs_module"] = "FutureWeatherObservations"
+        eval_env_params["obs_module"] = "FutureWeatherObservations"
 
     experiment_manager = RLExperimentManager(
         env_id=args.env_id,
