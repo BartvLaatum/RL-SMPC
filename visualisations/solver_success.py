@@ -66,13 +66,18 @@ def bar_plot_solver_success(data, labels, colors):
     # Compute average solver_success for MPC and RL-SMPC per horizon
 
     success_rates = []
-
+    success_rates_stds = []
+    print("Solver failure rates:")
     for key, result in data.items():
-        
+        print(key)
         horizons = result.keys()
-        success_rate = [result[h]['solver_success'].mean() for h in horizons]
-        success_rates.append(success_rate)
-        print(f"{key}: {[round(x, 4) for x in success_rate]}")
+        grouped_success_rate = [result[h].groupby("run")['solver_success'].mean() for h in horizons]
+        mean_success_rate = [h.mean() for h in grouped_success_rate]
+        std_success_rate = [h.std() for h in grouped_success_rate]
+        # success_rate_std = [result[h]['solver_success'].std() for h in horizons]
+        success_rates.append(mean_success_rate)
+        success_rates_stds.append(std_success_rate)
+        print(f"{key}: {[round(x, 4) for x in mean_success_rate]}")
 
     # Setup grouped bar plot
     x = np.arange(len(horizons))
@@ -101,8 +106,11 @@ def bar_plot_solver_success(data, labels, colors):
     # Plot bars
     for i, success_rate in enumerate(success_rates):
         ax.bar(positions[i], success_rate, bar_width, 
-               label=labels[i], color=colors[i], alpha=0.8)
+               label=labels[i], color=colors[i], alpha=0.8, yerr=std_success_rate, 
+               capsize=3, error_kw={'elinewidth': 1})
 
+    # Set y-ticks
+    ax.set_yticks(np.arange(0, 0.04, 0.01))
     ax.set_xlabel('Prediction Horizon')
     ax.set_ylabel('Average Failure Rate')
     ax.set_xticks(x)
@@ -111,6 +119,63 @@ def bar_plot_solver_success(data, labels, colors):
     plt.tight_layout()
     fig.savefig("barplot-solver-success.png")
     plt.show()
+
+def bar_plot_solver_time(data, labels, colors):
+    # Compute average solver_success for MPC and RL-SMPC per horizon
+    print("Solver times:")
+    solver_times = []
+    solver_times_stds = []
+    for key, result in data.items():
+        
+        horizons = result.keys()
+        grouped_solver_times = [result[h].groupby("run")['solver_times'].mean() for h in horizons]
+        solver_time = [h.mean() for h in grouped_solver_times]
+        solver_time_std = [h.std() for h in grouped_solver_times]
+        solver_times.append(solver_time)
+        solver_times_stds.append(solver_time_std)
+        print(f"{key}: {[round(x, 4) for x in solver_time]}")
+
+    # Setup grouped bar plot
+    x = np.arange(len(horizons))
+    bar_width = 0.35
+
+    WIDTH = 87.5 * 0.03937
+    HEIGHT = WIDTH * 0.75
+
+    fig, ax = plt.subplots(figsize=(WIDTH, HEIGHT), dpi=300)
+
+    # Calculate bar positions for each group
+    positions = []
+    n_bars = len(solver_times)
+    total_width = bar_width * n_bars
+
+    # For odd number of bars, center the middle bar
+    # For even number, center between the two middle bars
+    if n_bars % 2 == 0:
+        start = -(total_width/2) + (bar_width/2)
+    else:
+        start = -(total_width/2) + (bar_width)
+    
+    for i in range(n_bars):
+        positions.append(x + start + i*bar_width)
+
+    # Plot bars with error bars for standard deviation
+    for i, (solver_time, solver_time_std) in enumerate(zip(solver_times, solver_times_stds)):
+        ax.bar(positions[i], solver_time, bar_width, 
+               label=labels[i], color=colors[i], alpha=0.8, yerr=solver_time_std, 
+               capsize=3, error_kw={'elinewidth': 1})
+
+    # Set y-ticks
+    # ax.set_yticks(np.arange(0, 0.04, 0.01))
+    ax.set_xlabel('Prediction Horizon')
+    ax.set_ylabel('Average Solver Time (s)')
+    ax.set_xticks(x)
+    ax.set_xticklabels(horizons)
+    ax.legend()
+    plt.tight_layout()
+    fig.savefig("barplot-solver-time.png")
+    plt.show()
+
 
 def load_data():
     data = {
@@ -130,7 +195,7 @@ def load_data():
         mpc_clipped_file = f"{mpc_dir}/mpc-box-constraints-{h}H-0.1.csv"
         rlsmpc_file = f"{rlsmpc_dir}/box-constraints-{h}H-0.1.csv"
         smpc_file = f"{smpc_dir}/smpc-{h}H-0.1.csv"
-        smpc_clipped_file = f"{smpc_dir}/smpc-clipped-{h}H-0.1.csv"
+        smpc_clipped_file = f"{smpc_dir}/box-constraints-{h}H-0.1.csv"
 
         # Load MPC data
         if h not in data['mpc'] and os.path.exists(mpc_file):
@@ -172,7 +237,15 @@ def main():
     }
 
     labels = ["MPC", "SMPC", "RL-SMPC"]
-    # bar_plot_solver_success(subset_data, labels, colors=["C0", "C8", "C3"])
+    bar_plot_solver_success(subset_data, labels, colors=["C0", "C8", "C3"])
+
+    subset_data = {
+        "smpc-clipped": data.get("smpc-clipped", {}),
+        "RL-SMPC": data.get("rlsmpc", {}),
+    }
+
+    labels = ["SMPC", "RL-SMPC"]
+    bar_plot_solver_time(subset_data, labels, colors=["C8", "C3"])
     # plot_mpc_vs_rl_smpc(subset_data, labels=labels)
 
     # bar_plot_solver_success(data, ["MPC", r"RL$^0$-SMPC", "SMPC"], colors=["C0", "C3", "C2"])
