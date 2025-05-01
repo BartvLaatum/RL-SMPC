@@ -1,4 +1,5 @@
 import os
+from os.path import join
 from typing import Dict, Any, Tuple, List
 
 import yaml
@@ -28,6 +29,12 @@ def load_rl_params(env_id: str, algorithms: str) -> Tuple[Dict[str, Any], Dict[s
         all_params = yaml.safe_load(file)
 
     return all_params["hyperparameters"], all_params[env_id]
+
+def load_sweep_config(path: str, env_id: str, algorithm: str) -> Dict[str, Any]:
+    with open(join(path, algorithm + ".yml"), "r") as f:
+        sweep_config = yaml.load(f, Loader=yaml.FullLoader)
+    return sweep_config[env_id]
+
 
 def wandb_init(hyperparameters: Dict[str, Any],
                env_seed: int,
