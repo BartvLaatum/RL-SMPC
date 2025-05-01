@@ -5,12 +5,12 @@ LettuceGreenhouse:
   weather_filename: outdoorWeatherWurGlas2014.csv
 
 hyperparameters:
-  total_timesteps: 192_000
+  total_timesteps: 400_000
   n_envs: 1
   policy: MlpPolicy
   learning_rate: 5.e-3
   schedule: True
-  buffer_size: 100_000  
+  buffer_size: 200_000  
   learning_starts: 17_460 # let the agents randomly explore for episodes.
   batch_size: 1024
   tau: 0.005
