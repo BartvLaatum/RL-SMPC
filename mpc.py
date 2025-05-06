@@ -144,17 +144,21 @@ class MPC:
         # initial values of the decision variables (control signals) in the optimization
         self.u0 = np.zeros((self.nu, self.Np)) # this can be moved to the shooting function method.
 
-    def solve_ocp(self, x0, u0, ds):
+    def solve_ocp(self, x0, u0, ds, u_guess=None, x_guess=None):
         """
         Sets solver values for the optimization problem.
         This function initializes various parameters and values required for the scenario-based
         Model Predictive Control (MPC) solver, including initial states, control inputs, and weather trajectory.
-
         """
 
         self.opti.set_value(self.x0, x0)
         self.opti.set_value(self.init_u, u0)
         self.opti.set_value(self.ds, ds)
+
+        if u_guess is not None:
+            self.opti.set_initial(self.us, u_guess)
+        if x_guess is not None:
+            self.opti.set_initial(self.xs, x_guess)
 
         start_time = time()
         try:
@@ -252,6 +256,22 @@ class MPC:
 
         self.opti.solver('ipopt', self.nlp_opts)
 
+    def first_initial_guess(self, d, p):
+        """
+        Compute the first initial guess for the optimization problem.
+        This function sets the initial guess for the control inputs and states in the optimization problem.
+        It is used to provide a starting point for the optimization solver.
+        """
+        u_initial_guess = np.ones((self.nu, self.Np)) * np.array(self.u_initial).reshape(self.nu, 1)
+        x_initial_guess = np.zeros((self.nx, self.Np+1))
+        x_initial_guess[:, 0] = self.x_initial
+
+        for i in range(self.Np):
+            x_initial_guess[:, i+1] = self.F(x_initial_guess[:, i], u_initial_guess[:, i], d[:, i], p).toarray().ravel()
+
+        return u_initial_guess, x_initial_guess
+
+
     def constraint_violation(self, y: np.ndarray):
         """
         Function that computes the absolute penalties for violating system constraints.
@@ -322,6 +342,7 @@ class Experiment:
         self.x[:, 0] = np.array(mpc.x_initial)
         self.y[:, 0] = mpc.g(self.x[:, 0]).toarray().ravel()
         self.u = np.zeros((self.mpc.nu, self.mpc.N+1))
+        self.u[:, 0] = np.array(mpc.u_initial)
         self.d = load_disturbances(
             weather_filename,
             self.mpc.L,
@@ -357,12 +378,16 @@ class Experiment:
             np.ndarray: the gradient of the cost function
             np.ndarray: the hessian of the cost function
         """
+        # Set the initial guess for input and state
+        u_initial_guess, x_initial_guess = self.mpc.first_initial_guess(self.d[:, :self.mpc.Np], self.p)
         for ll in tqdm(range(self.mpc.N)):
 
             xs_opt, ys_opt, us_opt, J_opt, solver_time, exit_message = self.mpc.solve_ocp(
                 self.x[:, ll],
                 self.u[:, ll],
-                self.d[:, ll:ll+self.mpc.Np]
+                self.d[:, ll:ll+self.mpc.Np],
+                u_guess=u_initial_guess,
+                x_guess=x_initial_guess
             )
 
             self.u[:, ll+1] = us_opt[:, 0]
@@ -377,6 +402,9 @@ class Experiment:
             penalties = self.mpc.compute_penalties(self.y[:, ll+1])
 
             self.update_results(us_opt, J_opt, [], econ_rew, penalties, ll, solver_time, exit_message=exit_message)
+
+            u_initial_guess = np.concatenate([us_opt[:, 1:], us_opt[:, -1][:, None]], axis=1)
+            x_initial_guess = np.concatenate([self.x[:, ll+1].reshape(self.mpc.nx, 1), xs_opt[:, 2:],  xs_opt[:, -1][:, None]], axis=1)
 
     def update_results(self, us_opt, Js_opt, sol, eco_rew, penalties, step, solver_time, exit_message=None):
         """
@@ -517,6 +545,6 @@ if __name__ == "__main__":
     mpc = MPC(**env_params, **mpc_params)
     mpc.define_nlp(p)
     uncertainty_value = 0.1
-    rng = np.random.default_rng(42)
+    rng = np.random.default_rng(666)
     exp = Experiment(mpc, args.save_name, args.project, args.weather_filename, uncertainty_value, p, rng)
     exp.solve_nmpc()
