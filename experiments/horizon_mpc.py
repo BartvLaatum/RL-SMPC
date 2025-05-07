@@ -49,7 +49,7 @@ if __name__ == "__main__":
         results = Results(col_names)
         if args.mode == "stochastic":
             print(f"Running stochastic case for horizon: {H},\n Uncertainty value: {args.uncertainty_value}")
-            N_sims = 30
+            N_sims = 10
             save_name = f"{args.save_name}-{H}H-{args.uncertainty_value}.csv"
         else:
             print(f"Running for horizon: {H}")
@@ -66,7 +66,7 @@ if __name__ == "__main__":
             exp.solve_nmpc()
             return exp.get_results(run)
 
-        with Pool(processes=5) as pool:
+        with Pool(processes=10) as pool:
             data_list = list(tqdm(pool.imap(run_experiment, range(N_sims)), total=N_sims))
 
         for data in data_list:
