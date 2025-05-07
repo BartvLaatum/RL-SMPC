@@ -323,11 +323,10 @@ class LettuceGreenhouse(gym.Env):
         # If we provide multiple weather files we randomly select one during training
         if isinstance(self.weather_filename, list):
             weather_filename = self._np_random.choice(self.weather_filename)
-            start_day = self.start_day + np.random.randint(-5, 5)
         else:
             weather_filename = self.weather_filename
-            start_day = self.start_day
-        self.d = load_disturbances(weather_filename, self.L, start_day, self.dt , self.Np*2, self.nd)
+
+        self.d = load_disturbances(weather_filename, self.L, self.start_day, self.dt , self.Np*2, self.nd)
         self.y = self.get_y()
         self.y_prev = np.copy(self.y)
 
