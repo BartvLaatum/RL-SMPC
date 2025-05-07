@@ -362,6 +362,29 @@ class Experiment:
         self.solver_times = np.zeros((1, mpc.N))
         self.exit_message = np.zeros((1, mpc.N))
 
+    def initial_guess_xs(self, x0, u_guess, ds) -> np.ndarray:
+        """
+        Generate initial guesses for the states based on the provided parametric samples.
+
+        Args:
+            x0 (np.ndarray): The initial state of the system.
+            u_guess (np.ndarray): The initial guess for the control inputs.
+            ds (np.ndarray): The disturbance trajectory.
+
+        Returns:
+            Array: An array with initial guess for the state trajectory given input trajectory u.
+        """
+        xs = np.zeros((self.mpc.nx, self.mpc.Np + 1))
+        xs[:, 0] = x0
+        for ll in range(self.mpc.Np):
+            xs[:, ll + 1] = self.mpc.F(
+                xs[:, ll],
+                u_guess[:, ll],
+                ds[:, ll],
+                self.p
+            ).toarray().ravel()
+        return xs
+
 
     def solve_nmpc(self) -> None:
         """Solve the nonlinear MPC problem.
@@ -379,8 +402,15 @@ class Experiment:
             np.ndarray: the hessian of the cost function
         """
         # Set the initial guess for input and state
-        u_initial_guess, x_initial_guess = self.mpc.first_initial_guess(self.d[:, :self.mpc.Np], self.p)
+        # u_initial_guess, x_initial_guess = self.mpc.first_initial_guess(self.d[:, :self.mpc.Np], self.p)
+        u_initial_guess = np.ones((self.mpc.nu, self.mpc.Np)) * np.array(self.mpc.u_initial).reshape(self.mpc.nu, 1)
+        
         for ll in tqdm(range(self.mpc.N)):
+            x_initial_guess = self.initial_guess_xs(
+                self.x[:, ll],
+                u_initial_guess,
+                self.d[:, ll:ll+self.mpc.Np]
+            )
 
             xs_opt, ys_opt, us_opt, J_opt, solver_time, exit_message = self.mpc.solve_ocp(
                 self.x[:, ll],
@@ -404,7 +434,7 @@ class Experiment:
             self.update_results(us_opt, J_opt, [], econ_rew, penalties, ll, solver_time, exit_message=exit_message)
 
             u_initial_guess = np.concatenate([us_opt[:, 1:], us_opt[:, -1][:, None]], axis=1)
-            x_initial_guess = np.concatenate([self.x[:, ll+1].reshape(self.mpc.nx, 1), xs_opt[:, 2:],  xs_opt[:, -1][:, None]], axis=1)
+            # x_initial_guess = np.concatenate([self.x[:, ll+1].reshape(self.mpc.nx, 1), xs_opt[:, 2:],  xs_opt[:, -1][:, None]], axis=1)
 
     def update_results(self, us_opt, Js_opt, sol, eco_rew, penalties, step, solver_time, exit_message=None):
         """
