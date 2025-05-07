@@ -131,7 +131,7 @@ class SMPC:
         # initial values of the decision variables (control signals) in the optimization
         self.u0 = np.zeros((self.nu, self.Np)) # this can be moved to the shooting function method.
 
-    def solve_ocp(self, x0, u0, ds, p_samples):
+    def solve_ocp(self, x0, u0, ds, p_samples, u_guess=None, x_guess=None):
         """
         Sets solver values for the optimization problem.
         This function initializes various parameters and values required for the scenario-based
@@ -144,6 +144,12 @@ class SMPC:
 
         for i, p_sample in enumerate(self.p_samples):
             self.opti.set_value(p_sample, p_samples[i].T)
+
+        if u_guess is not None:
+            self.opti.set_initial(self.us, u_guess)
+        if x_guess is not None:
+            for i, xs in enumerate(x_guess):
+                self.opti.set_initial(self.xs_list[i], xs)
 
         start_time = time()
         try:
@@ -161,6 +167,7 @@ class SMPC:
         J = solution.value(self.opti.f)
 
         return xs_opt, ys_opt, us, J, solver_time, exit_message
+
 
 
     def define_nlp(self, p: Dict[str, Any]) -> None:
@@ -301,6 +308,7 @@ class Experiment:
         self.x[:, 0] = np.array(mpc.x_initial)
         self.y[:, 0] = mpc.g(self.x[:, 0]).toarray().ravel()
         self.u = np.zeros((self.mpc.nu, self.mpc.N+1))
+        self.u[:, 0] = np.array(mpc.u_initial)
         self.d = load_disturbances(
             weather_filename,
             self.mpc.L,
@@ -352,8 +360,35 @@ class Experiment:
             p_samples.append(np.vstack(scenario_samples))
         return p_samples
 
+    def initial_guess_xs(self, p_samples, x0, u_guess, ds) -> List[np.ndarray]:
+        """
+        Generate initial guesses for the states based on the provided parametric samples.
+
+        Args:
+            p_samples (List[np.ndarray]): A list of parametric samples for each scenario.
+            x0 (np.ndarray): The initial state of the system.
+            u_guess (np.ndarray): The initial guess for the control inputs.
+            ds (np.ndarray): The disturbance trajectory.
+
+        Returns:
+            List: An List of arrays with initial guesses for the state trajectories for each realization of uncertainty.
+        """
+        x_initial_guess = []
+        for i in range(self.mpc.Ns):
+            xs = np.zeros((self.mpc.nx, self.mpc.Np + 1))
+            xs[:, 0] = x0
+            for ll in range(self.mpc.Np):
+                xs[:, ll + 1] = self.mpc.F(
+                    xs[:, ll],
+                    u_guess[:, ll],
+                    ds[:, ll],
+                    p_samples[i][ll]
+                ).toarray().ravel()
+            x_initial_guess.append(xs)
+        return x_initial_guess
+
     def solve_nmpc(self) -> None:
-        """Solve the nonlinear MPC problem.
+        """Solve the nonlinear SMPC problem.
 
         Args:
             p (Dict[str, Any]): the model parameters
@@ -361,14 +396,18 @@ class Experiment:
         Returns:
             None
         """
+        u_initial_guess = np.ones((self.mpc.nu, self.mpc.Np)) * np.array(self.mpc.u_initial).reshape(self.mpc.nu, 1)
+
         for ll in tqdm(range(self.mpc.N)):
             p_samples = self.generate_psamples()
-
+            x_initial_guess = self.initial_guess_xs(p_samples, self.x[:, ll], u_initial_guess, self.d[:, ll:ll+self.mpc.Np])
             xs_opt, ys_opt, us_opt, J_opt, solver_time, exit_message = self.mpc.solve_ocp(
                 self.x[:, ll],
                 self.u[:, ll],
                 self.d[:, ll:ll+self.mpc.Np],
-                p_samples
+                p_samples,
+                u_guess=u_initial_guess,
+                x_guess=x_initial_guess
             )
 
             self.u[:, ll+1] = us_opt[:, 0]
@@ -383,6 +422,8 @@ class Experiment:
             penalties = self.mpc.compute_penalties(self.y[:, ll+1])
 
             self.update_results(us_opt, J_opt, [], econ_rew, penalties, ll, solver_time, exit_message=exit_message)
+
+            u_initial_guess = np.concatenate([us_opt[:, 1:], us_opt[:, -1][:, None]], axis=1)
 
     def solve_smpc_OL_predictions(self) -> None:
         """Solve the nonlinear Stochastic MPC problem.
@@ -591,7 +632,7 @@ class Experiment:
             save_path (str): The path where the results will be saved.
         """
         df = self.retrieve_results()
-        df.to_csv(f"{save_path}/{self.save_name}", index=False)
+        df.to_csv(f"{save_path}/{self.save_name}.csv", index=False)
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
@@ -614,7 +655,7 @@ if __name__ == "__main__":
     for h in H:
         mpc_rng = np.random.default_rng(42)
         exp_rng = np.random.default_rng(666)
-        save_name = f"{args.save_name}-{h}H-{mpc_params['Ns']}Ns-{args.uncertainty_value}"
+        save_name = f"{args.save_name}-{h}H-{args.uncertainty_value}"
         mpc_params["rng"] = mpc_rng
         mpc_params["Np"] = int(h * 3600 / env_params["dt"])
 
@@ -625,5 +666,4 @@ if __name__ == "__main__":
 
         exp = Experiment(mpc, save_name, args.project, args.weather_filename, args.uncertainty_value, p, exp_rng)
         exp.solve_nmpc()
-        df = exp.retrieve_results()
-        exp.save_results(df, save_path)
+        exp.save_results(save_path)
