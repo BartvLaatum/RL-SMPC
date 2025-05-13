@@ -252,19 +252,18 @@ def ode(x, u, d, p):
     Returns:
         casadi: The derivatives of the state variables.
     """
-    eps = 0
     ode = casadi.vertcat(
         p[13] * (
             (1 - casadi.exp(-p[16] * x[0])) * p[17] * d[0] *
             (-p[18] * casadi.power(x[2], 2) + p[19] * x[2] - p[20]) * (x[1] - p[21]) 
-            / (p[17] * d[0] + (-p[18] * casadi.power(x[2], 2) + p[19] * x[2] - p[20]) * (x[1] - p[21]) + eps)
+            / (p[17] * d[0] + (-p[18] * casadi.power(x[2], 2) + p[19] * x[2] - p[20]) * (x[1] - p[21]))
         )
         - p[14]*x[0] * casadi.power(2, (0.1*x[2] - 2.5)),
 
         (1 / p[7]) * (
             -((1 - casadi.exp(-p[16] * x[0])) * (p[17] * d[0] *
             (-p[18] * casadi.power(x[2], 2) + p[19] * x[2] - p[20]) * (x[1] - p[21]))
-            / (p[17] * d[0] + (-p[18] * casadi.power(x[2], 2) + p[19] * x[2] - p[20]) * (x[1] - p[21]) + eps))
+            / (p[17] * d[0] + (-p[18] * casadi.power(x[2], 2) + p[19] * x[2] - p[20]) * (x[1] - p[21])))
             + p[15] * x[0] * casadi.power(2, (0.1 * x[2] - 2.5)) + u[0]/1e6 - (u[1] / 1e3 + p[6]) * (x[1] - d[1])
         ),
 
