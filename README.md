@@ -1,12 +1,18 @@
-# Reinforcement Learning Stochastic Model Predictive Control (RL-SMPC) for Greenhouse Lettuce Production 🥬
+# Reinforcement Learning and Stochastic Model Predictive Control (RL-SMPC) for Greenhouse Lettuce Production 🥬
 
 ## Introduction
 
 This repository provides an implementation of the integration between **R**einforcement **L**earning and **S**tochastic **M**odel **P**redictive **C**ontrol (**RL-SMPC**) for controlling greenhouse lettuce production systems under parametric uncertainty. The RL-SMPC algorithm is visualized in the figure below.
 
+
 <p align="center">
-    <img src="images/rl-smpc-sketch.svg" alt="RL-SMPC Framework" width="500"/>
+<br/><br/>
+<br/><br/>
+<img src="images/rl-smpc-sketch.svg" alt="RL-SMPC Framework" width="500"/>
+<br/><br/>
+<br/><br/>
 </p>
+
 
 
 ## Project Structure
