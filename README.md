@@ -1,8 +1,11 @@
-# Stochastic RL-MPC for Greenhouse Lettuce Production Control 🥬
+# Reinforcement Learning Stochastic Model Predictive Control (RL-SMPC) for Greenhouse Lettuce Production 🥬
 
-## Overview
+## Introduction
 
-This repository provides an implementation of the integration between Reinforcement Learning (RL) and Model Predictive Control (MPC) for managing greenhouse lettuce production systems. The approach allows for controlling the system using MPC, RL, or a combination of both (RL-MPC).
+This repository provides an implementation of the integration between **R**einforcement **L**earning and **S**tochastic **M**odel **P**redictive **C**ontrol (**RL-SMPC**) for controlling greenhouse lettuce production systems under parametric uncertainty. The RL-SMPC algorithm is visualized in the figure below.
+
+<img src="images/rl-smpc-sketch.svg" alt="RL-SMPC Framework" width="400"/>
+
 
 ## Project Structure
 
@@ -33,7 +36,7 @@ RL-MPC-lettuce/
 
 ## Installation
 
-We recommend using Python 3.10+ with Anaconda for this project.
+This project was developed using Python 3.11 with in an Anaconda environment.
 
 1. Clone the repository:
 ```shell
@@ -47,135 +50,27 @@ pip install -r requirements.txt
 
 ## Usage
 
-### 1. Model Predictive Control (MPC)
+## Experiments
 
-Run a deterministic MPC instance and save the closed-loop trajectory results:
+The [`experiments`](./experiments/) folder contains experiments to run (S)MPC and RL-SMPC for varying prediction horizons. We have created some bash scripts to easily set some command line arguments [`run_scipts`](./run_scripts/). In detail:
 
-```shell
-python mpc.py 
---project PROJECT_NAME
---env_id ENV_ID
---save_name SAVE_NAME
---weather_filename WEATHER_FILENAME
+#### Training an RL-agent
+Trains the Soft Actor-Critic (SAC) agent 
+```
+. run_scripts train_stoch_rl.sh
 ```
 
-### 2. Reinforcement Learning (RL)
+## Visualizations
 
-Start training and logging the RL agent. Training logs are saved to Weights and Biases (wandb), and model/environment metrics are stored in:
 
-- `train_data/{project}/{algorithm}/{stochastic}/envs/{model_name}/`
-- `train_data/{project}/{algorithm}/{stochastic}/models/{model_name}/`
 
-```shell
-python experiments/train_rl.py
---project PROJECT_NAME
---env_id ENV_ID
---algorithm RL-ALGORITHM
---group GROUP_NAME
---n_eval_episodes NUMBER_OF_EPISODES_TO_EVALUATE
---n_evals NUMBER_EVALUATION_DURING_TRAINING
---env_seed SEED_FOR_ENVIRONMENT
---model_seed SEED_FOR_MODEL
---stochastic STOCHASTIC_OR_DETERMINISTIC
---device DEVICE_FOR_NN
---save_model SAVE_MODEL
---save_env SAVE_ENV
-```
-
-Evaluate the best-trained agent:
+#### Compare the performance of RL-SMPC, SMPC, MPC and RL over the prediction horizon
 
 ```shell
-python RL/evaluate_rl.py
---project PROJECT_NAME
---env_id ENV_ID
---model_name MODEL_NAME
---algorithm RL-ALGORITHM
---mode STOCHASTIC_OR_DETERMINISTIC
+python visualisations/rl_smpc_performance.py --project SMPC --model_names frosty-rain-50 --smpc --zero-order --terminal --mode stochastic --uncertainty_value 0.15 --figure_name warm-start
 ```
 
-### 3. Train value function for temporal return learning.
-
-- Saves the resulting value function in:
-
-`train_data/{PROJECT_NAME}/{RL_ALGORITHM}/{STOCHASTIC_OR_DETERMINISTIC}/models/{MODEL_NAME}/vf.zip`
-
-```shell
-python RL/vf_TR_learning.py 
---project PROJECT_NAME
---env_id ENV_ID
---algorithm RL_ALGORITHM
---model_name MODEL_NAME
---stochastic STOCHASTIC_OR_DETERMINISTIC
-```
-
-### 4. RL-MPC
-
-Run a deterministic RL-MPC instance and save the closed-loop trajectory results:
-
-```shell
-python rl_mpc.py 
---project PROJECT_NAME
---env_id ENV_ID
---save_name SAVE_NAME
---weather_filename WEATHER_FILENAME
---algorithm RL-ALGORITHM
---model_name MODEL_NAME
---use_trained_vf USE_TRAINED_VF
---stochastic STOCHASTIC_OR_DETERMINISTIC
-```
-
-## Examples
-
-
-### Learning value function
-- Determinstic case
-- Using model `resolute-darling-85`
-```shell
-python RL/vf_TR_learning.py 
---project matching-thesis
---env_id LettuceGreenhouse
---algorithm sac
---model_name resolute-darling-85
-```
-
-### Running RL-MPC for varying prediction horizon ranging from 1H-6H
-
-- Deterministic case
-- Using model: `resolute-darling-85`
-```shell
-python experiments/horizon_rlmpc.py
---project matching-thesis
---env_id LettuceGreenhouse
---save_name rlmpc
---algorithm sac
---model_name resolute-darling-85
---mode deterministic
---use_trained_vf
-```
-
-
-### Visualize performance of algorithms over 1H-6H horizon
-- Deterministic case
-- For the models: `resolute-darling-85` and `salim`
-
-```shell
-python visualisations/performance_plots.py 
---project matching-thesis 
---model_names resolute-darling-85 salim 
---mode deterministic
-```
-
-- SMPC and RL-SMPC
-```shell
-python visualisations/performance_plots.py 
---project SMPC 
---model_names logical-disco-90 
---Ns 5 
---mode stochastic 
---uncertainty_value 0.05 
---figure_name rlsmpc
-```
-## Results
+<!-- ## Results
 
 ### Deterministic case
 Example performance of varying horizons in the RL-MPC framework:
@@ -186,4 +81,5 @@ Example performance of varying horizons in the RL-MPC framework:
 ### Stochastic case
 Example performance of varying horizons in the RL-MPC framework:
 
-![Performance comparison of different prediction horizons](figures/matching-thesis/stochastic/thesis-agent.png)
+![Performance comparison of different prediction horizons](figures/matching-thesis/stochastic/thesis-agent.png) -->
+
