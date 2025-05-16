@@ -81,6 +81,7 @@ def run_experiment(
         vf_path,
         p,
         save_name,
+        Ns=10,
     ):
     # Add a small delay based on run ID to avoid resource contention
 
@@ -94,7 +95,8 @@ def run_experiment(
         rl_model_path,
         vf_path,
         run,
-        args.use_trained_vf
+        args.use_trained_vf,
+        Ns=Ns
     )
 
     rl_mpc.define_zero_order_snlp(p)
