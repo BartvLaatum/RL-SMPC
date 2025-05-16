@@ -13,11 +13,12 @@ import numpy as np
 import gymnasium as gym
 from gymnasium import spaces
 
-from envs.observations import StandardObservations
+from envs.observations import StandardObservations, FutureWeatherObservations
 from common.noise import parametric_uncertainty
 from common.utils import *
 
-observations = {"StandardObservations": StandardObservations}
+observations = {"StandardObservations": StandardObservations,
+                "FutureWeatherObservations": FutureWeatherObservations}
 
 class LettuceGreenhouse(gym.Env):
     """
@@ -80,9 +81,8 @@ class LettuceGreenhouse(gym.Env):
         self.N = int(self.L//self.dt)     # number of steps to take during episode
         # prediction horizon for weather forecast for observation space
         self.Np = Np
-        
-        self.uncertainty_value = uncertainty_value
 
+        self.uncertainty_value = uncertainty_value
         # greenhouse model parameters
         self.p = get_parameters()
 
@@ -233,7 +233,7 @@ class LettuceGreenhouse(gym.Env):
         """
         Function that returns the observation space of the environment.
         """
-        return self.observation_module.compute_obs(self.y, self.u, self.d[:, self.timestep], self.timestep)
+        return self.observation_module.compute_obs(self.y, self.u, self.d, self.timestep)
 
     def get_info(self, u):
         info =  {}
@@ -303,7 +303,7 @@ class LettuceGreenhouse(gym.Env):
     def set_seed(self, seed: int):
         self._np_random, seed = gym.utils.seeding.np_random(seed)
 
-    def reset(self, seed: int = 666):
+    def reset(self, seed: int | None = None):
         """
         Resets environment to starting state.
         Args:
@@ -320,7 +320,13 @@ class LettuceGreenhouse(gym.Env):
         self.x_prev = np.copy(self.x0)
         self.prev_dw = np.copy(self.x[0])
 
-        self.d = load_disturbances(self.weather_filename, self.L, self.start_day, self.dt , self.Np*2, self.nd)
+        # If we provide multiple weather files we randomly select one during training
+        if isinstance(self.weather_filename, list):
+            weather_filename = self._np_random.choice(self.weather_filename)
+        else:
+            weather_filename = self.weather_filename
+
+        self.d = load_disturbances(weather_filename, self.L, self.start_day, self.dt , self.Np*2, self.nd)
         self.y = self.get_y()
         self.y_prev = np.copy(self.y)
 
@@ -358,10 +364,10 @@ class LettuceGreenhouse(gym.Env):
         max_temp_traj = 30
         min_temp_traj = 7
         random_x[2] =  np.random.uniform(min_temp_traj,max_temp_traj)      
-        
+
         # Hum
         random_x[3] =  np.random.uniform(rh2vaporDens(random_x[2],50),rh2vaporDens(random_x[2],100))
-          
+
         random_x = np.clip(random_x, self.x_min, self.x_max)
         random_y = self.g(random_x).toarray().ravel() 
 

@@ -37,20 +37,19 @@ if __name__ == "__main__":
     p = get_parameters()
 
     Pred_H = [1, 2, 3, 4, 5, 6]
-    # Pred_H = [1]
     seed = 666
 
     col_names = [
         "time", "x_0", "x_1", "x_2", "x_3", "y_0", "y_1", "y_2", "y_3",
         "u_0", "u_1", "u_2", "d_0", "d_1", "d_2", "d_3", 
-        "J", "econ_rewards", "penalties", "rewards", "run"
+        "J", "econ_rewards", "penalties", "rewards", "solver_times", "solver_success", "run"
     ]
 
     for H in tqdm(Pred_H):
         results = Results(col_names)
         if args.mode == "stochastic":
             print(f"Running stochastic case for horizon: {H},\n Uncertainty value: {args.uncertainty_value}")
-            N_sims = 30
+            N_sims = 10
             save_name = f"{args.save_name}-{H}H-{args.uncertainty_value}.csv"
         else:
             print(f"Running for horizon: {H}")

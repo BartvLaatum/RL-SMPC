@@ -15,20 +15,28 @@ y = poly(x)
 import matplotlib.pyplot as plt
 # plt.plot(x, y)
 plt.xlabel("Temperature [°C]")
-plt.title("Polynomial: $-p_{1, 8}x_{temp}(t)^2+p_{1,6}x_{temp}(t)-p_{1,7}$")
-plt.hlines(0, xmin=0, xmax=50, color="grey", linestyle="--")
+# plt.title("Polynomial: $-p_{1, 8}x_{temp}(t)^2+p_{1,6}x_{temp}(t)-p_{1,7}$")
+# plt.hlines(0, xmin=5, xmax=40, color="grey", linestyle="--")
+# plt.savefig("temp-poly.png")
 
-
-
-print(vaporDens2rh(5, 0.0007))
-print(vaporDens2rh(40, 0.0007))
+print(vaporDens2rh(5, 0.001))
+print(vaporDens2rh(40, 0.001))
 
 rhmin =  12
 y = rh2vaporDens(x, rhmin)
-plt.plot(x, y)
-plt.show()
 
-xmin = 0.001
-y = vaporDens2rh(x, xmin)
+# xmin = 0.001
+# y = vaporDens2rh(x, xmin)
+# plt.plot(x, y)
+# plt.xlabel("Temperature")
+# plt.ylabel("RH")
+# plt.savefig("rh.png")
+# plt.show()
+
+xmin = 0.0002
+y = co2dens2ppm(x, xmin)
 plt.plot(x, y)
+# plt.xlabel("Temperature")
+plt.ylabel("CO2 (ppm)")
+plt.savefig("co2.png")
 plt.show()

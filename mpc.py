@@ -1,5 +1,6 @@
 import os
 import argparse
+from time import time
 from typing import Any, Dict, List
 
 from tqdm import tqdm
@@ -143,24 +144,30 @@ class MPC:
         # initial values of the decision variables (control signals) in the optimization
         self.u0 = np.zeros((self.nu, self.Np)) # this can be moved to the shooting function method.
 
-    def solve_ocp(self, x0, u0, ds):
+    def solve_ocp(self, x0, u0, ds, u_guess=None, x_guess=None):
         """
         Sets solver values for the optimization problem.
         This function initializes various parameters and values required for the scenario-based
         Model Predictive Control (MPC) solver, including initial states, control inputs, and weather trajectory.
-
         """
 
         self.opti.set_value(self.x0, x0)
         self.opti.set_value(self.init_u, u0)
         self.opti.set_value(self.ds, ds)
 
+        if u_guess is not None:
+            self.opti.set_initial(self.us, u_guess)
+        if x_guess is not None:
+            self.opti.set_initial(self.xs, x_guess)
+
+        start_time = time()
         try:
             solution = self.opti.solve()
         except RuntimeError as err:
             # Recover from the failed solve: you might use the last iterate available via opti.debug
             print("Solver failed with error:", err)
             solution = self.opti.debug  # Returns the current iterate even if not converged
+        solver_time = time() - start_time
 
         exit_message = solution.stats()['return_status']
         xs_opt = solution.value(self.xs)
@@ -168,7 +175,7 @@ class MPC:
         us = solution.value(self.us)
         J = solution.value(self.opti.f)
 
-        return xs_opt, ys_opt, us, J, exit_message
+        return xs_opt, ys_opt, us, J, solver_time, exit_message
 
 
     def define_nlp(self, p: np.ndarray) -> None:
@@ -249,6 +256,22 @@ class MPC:
 
         self.opti.solver('ipopt', self.nlp_opts)
 
+    def first_initial_guess(self, d, p):
+        """
+        Compute the first initial guess for the optimization problem.
+        This function sets the initial guess for the control inputs and states in the optimization problem.
+        It is used to provide a starting point for the optimization solver.
+        """
+        u_initial_guess = np.ones((self.nu, self.Np)) * np.array(self.u_initial).reshape(self.nu, 1)
+        x_initial_guess = np.zeros((self.nx, self.Np+1))
+        x_initial_guess[:, 0] = self.x_initial
+
+        for i in range(self.Np):
+            x_initial_guess[:, i+1] = self.F(x_initial_guess[:, i], u_initial_guess[:, i], d[:, i], p).toarray().ravel()
+
+        return u_initial_guess, x_initial_guess
+
+
     def constraint_violation(self, y: np.ndarray):
         """
         Function that computes the absolute penalties for violating system constraints.
@@ -319,6 +342,7 @@ class Experiment:
         self.x[:, 0] = np.array(mpc.x_initial)
         self.y[:, 0] = mpc.g(self.x[:, 0]).toarray().ravel()
         self.u = np.zeros((self.mpc.nu, self.mpc.N+1))
+        self.u[:, 0] = np.array(mpc.u_initial)
         self.d = load_disturbances(
             weather_filename,
             self.mpc.L,
@@ -335,7 +359,31 @@ class Experiment:
         self.penalties = np.zeros((1, mpc.N))
         self.econ_rewards = np.zeros((1, mpc.N))
         self.rewards = np.zeros((1, mpc.N))
+        self.solver_times = np.zeros((1, mpc.N))
         self.exit_message = np.zeros((1, mpc.N))
+
+    def initial_guess_xs(self, x0, u_guess, ds) -> np.ndarray:
+        """
+        Generate initial guesses for the states based on the provided parametric samples.
+
+        Args:
+            x0 (np.ndarray): The initial state of the system.
+            u_guess (np.ndarray): The initial guess for the control inputs.
+            ds (np.ndarray): The disturbance trajectory.
+
+        Returns:
+            Array: An array with initial guess for the state trajectory given input trajectory u.
+        """
+        xs = np.zeros((self.mpc.nx, self.mpc.Np + 1))
+        xs[:, 0] = x0
+        for ll in range(self.mpc.Np):
+            xs[:, ll + 1] = self.mpc.F(
+                xs[:, ll],
+                u_guess[:, ll],
+                ds[:, ll],
+                self.p
+            ).toarray().ravel()
+        return xs
 
 
     def solve_nmpc(self) -> None:
@@ -353,12 +401,23 @@ class Experiment:
             np.ndarray: the gradient of the cost function
             np.ndarray: the hessian of the cost function
         """
+        # Set the initial guess for input and state
+        # u_initial_guess, x_initial_guess = self.mpc.first_initial_guess(self.d[:, :self.mpc.Np], self.p)
+        u_initial_guess = np.ones((self.mpc.nu, self.mpc.Np)) * np.array(self.mpc.u_initial).reshape(self.mpc.nu, 1)
+        
         for ll in tqdm(range(self.mpc.N)):
+            x_initial_guess = self.initial_guess_xs(
+                self.x[:, ll],
+                u_initial_guess,
+                self.d[:, ll:ll+self.mpc.Np]
+            )
 
-            xs_opt, ys_opt, us_opt, J_opt, exit_message = self.mpc.solve_ocp(
+            xs_opt, ys_opt, us_opt, J_opt, solver_time, exit_message = self.mpc.solve_ocp(
                 self.x[:, ll],
                 self.u[:, ll],
-                self.d[:, ll:ll+self.mpc.Np]
+                self.d[:, ll:ll+self.mpc.Np],
+                u_guess=u_initial_guess,
+                x_guess=x_initial_guess
             )
 
             self.u[:, ll+1] = us_opt[:, 0]
@@ -372,9 +431,12 @@ class Experiment:
             econ_rew = compute_economic_reward(delta_dw, get_parameters(), self.mpc.dt, self.u[:, ll+1])
             penalties = self.mpc.compute_penalties(self.y[:, ll+1])
 
-            self.update_results(us_opt, J_opt, [], econ_rew, penalties, ll, exit_message=exit_message)
+            self.update_results(us_opt, J_opt, [], econ_rew, penalties, ll, solver_time, exit_message=exit_message)
 
-    def update_results(self, us_opt, Js_opt, sol, eco_rew, penalties, step, exit_message=None):
+            u_initial_guess = np.concatenate([us_opt[:, 1:], us_opt[:, -1][:, None]], axis=1)
+            # x_initial_guess = np.concatenate([self.x[:, ll+1].reshape(self.mpc.nx, 1), xs_opt[:, 2:],  xs_opt[:, -1][:, None]], axis=1)
+
+    def update_results(self, us_opt, Js_opt, sol, eco_rew, penalties, step, solver_time, exit_message=None):
         """
         Args:
             uopt (_type_): _description_
@@ -393,6 +455,7 @@ class Experiment:
         self.econ_rewards[:, step] = eco_rew
         self.penalties[:, step] = penalties
         self.rewards[:, step] = eco_rew - penalties
+        self.solver_times[:, step] = solver_time
         self.exit_message[:, step] = exit_message
 
     def get_results(self, run):
@@ -436,6 +499,9 @@ class Experiment:
         arrays.append(self.econ_rewards.flatten())
         arrays.append(self.penalties.flatten()) 
         arrays.append(self.rewards.flatten())
+        arrays.append(self.solver_times.flatten())
+        arrays.append(self.exit_message.flatten())
+
         arrays.append(np.ones(self.mpc.N) * run)
 
         # Stack all arrays vertically
@@ -471,6 +537,7 @@ class Experiment:
         data["econ_rewards"] = self.econ_rewards.flatten()
         data["penalties"] = self.penalties.flatten()
         data["rewards"] = self.rewards.flatten()
+        data["solver_times"] = self.solver_times.flatten()
         data["solver_success"] = self.exit_message.flatten()
 
         df = pd.DataFrame(data, columns=data.keys())
@@ -508,6 +575,6 @@ if __name__ == "__main__":
     mpc = MPC(**env_params, **mpc_params)
     mpc.define_nlp(p)
     uncertainty_value = 0.1
-    rng = np.random.default_rng(42)
+    rng = np.random.default_rng(666)
     exp = Experiment(mpc, args.save_name, args.project, args.weather_filename, uncertainty_value, p, rng)
     exp.solve_nmpc()

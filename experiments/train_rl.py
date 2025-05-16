@@ -14,11 +14,14 @@ if __name__ == "__main__":
     parser.add_argument("--n_evals", type=int, default=10, help="Number times we evaluate algorithm during training")
     parser.add_argument("--mode", type=str, choices=['deterministic', 'stochastic'], required=True)
     parser.add_argument("--uncertainty_value", type=float, help="List of uncertainty scale values")
-    parser.add_argument("--env_seed", type=int, default=666, help="Random seed for the environment for reproducibility")
-    parser.add_argument("--model_seed", type=int, default=666, help="Random seed for the RL-model for reproducibility")
+    parser.add_argument("--env_seed", type=int, default=42, help="Random seed for the environment for reproducibility")
+    parser.add_argument("--model_seed", type=int, default=42, help="Random seed for the RL-model for reproducibility")
     parser.add_argument("--device", type=str, default="cpu", help="The device to run the experiment on")
     parser.add_argument("--save_model", default=True, action=argparse.BooleanOptionalAction, help="Whether to save the model")
     parser.add_argument("--save_env", default=True, action=argparse.BooleanOptionalAction, help="Whether to save the environment")
+    parser.add_argument('--training_years', nargs='+', type=str, default=[],
+                        help="List of years to train on for weather trajectories")
+    parser.add_argument("--hyperparameter_tuning", default=False, action=argparse.BooleanOptionalAction, help="Whether to save the environment")
     args = parser.parse_args()
 
     assert args.mode in ['deterministic', 'stochastic'], "Mode must be either 'deterministic' or 'stochastic'"
@@ -37,11 +40,20 @@ if __name__ == "__main__":
     hyperparameters, rl_env_params = load_rl_params(args.env_id, args.algorithm)
     env_params.update(rl_env_params)
     env_params["uncertainty_value"] = args.uncertainty_value
+    eval_env_params = env_params.copy()
+
+    if args.training_years:
+        weather_files = [f"train/KNMI{year}.csv" for year in args.training_years]
+        env_params["weather_filename"] = weather_files
+        env_params["obs_module"] = "FutureWeatherObservations"
+        eval_env_params["obs_module"] = "FutureWeatherObservations"
+        env_params["start_day"] += 10 # the KNMI files start at 1 January and evaluation data at 10th January.
 
     experiment_manager = RLExperimentManager(
         env_id=args.env_id,
         project=args.project,
         env_params=env_params,
+        eval_env_params=eval_env_params,
         hyperparameters=hyperparameters,
         group=group,
         n_eval_episodes=args.n_eval_episodes,
@@ -52,6 +64,11 @@ if __name__ == "__main__":
         stochastic=True,
         save_model=args.save_model,
         save_env=args.save_env,
+        hp_tuning=args.hyperparameter_tuning,
         device=args.device
     )
-    experiment_manager.run_experiment()
+    if args.hyperparameter_tuning:
+        # Perform hyperparameter tuning
+        experiment_manager.hyperparameter_tuning()
+    else:
+        experiment_manager.run_experiment()
