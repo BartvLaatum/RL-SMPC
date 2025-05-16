@@ -4,7 +4,9 @@
 
 This repository provides an implementation of the integration between **R**einforcement **L**earning and **S**tochastic **M**odel **P**redictive **C**ontrol (**RL-SMPC**) for controlling greenhouse lettuce production systems under parametric uncertainty. The RL-SMPC algorithm is visualized in the figure below.
 
-<img src="images/rl-smpc-sketch.svg" alt="RL-SMPC Framework" width="400"/>
+<p align="center">
+    <img src="images/rl-smpc-sketch.svg" alt="RL-SMPC Framework" width="500"/>
+</p>
 
 
 ## Project Structure
