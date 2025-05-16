@@ -1273,7 +1273,8 @@ def create_rl_smpc(
         rl_model_path, 
         vf_path,
         run,
-        use_trained_vf=True 
+        use_trained_vf=True,
+        Ns=10,
     ):
     """Creates a Reinforcement Learning Stochastic Model Predictive Controller (RL-SMPC).
 
@@ -1292,7 +1293,7 @@ def create_rl_smpc(
     """
     mpc_rng = np.random.default_rng(42 + run)
     mpc_params["rng"] = mpc_rng    
-    mpc_params["Ns"] = 10
+    mpc_params["Ns"] = Ns
     mpc_params["Np"] = int(h * 3600 / env_params["dt"])
 
     return RLSMPC(
