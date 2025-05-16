@@ -87,19 +87,16 @@ def load_data(model_names, mode, project, Ns=[], uncertainty_value=None):
                 if h not in data['smpc']:
                     data['smpc'][h] = {}
                 data['smpc'][h][uncertainty_suffix] = pd.read_csv(smpc_path)
-            # if os.path.exists(rlsmpc_path):
-            #     if h not in data['rlsmpc']:
-            #         data['rlsmpc'][h] = {}
-            #     data['rlsmpc'][h][uncertainty_suffix] = pd.read_csv(rlsmpc_path)    
             
     return data, horizons
 
 def create_plot(figure_name, project, data, horizons, model_names, mode, variable, Ns=[], uncertainty_value=None):
     """
-    Creates a comparison plot between MPC, RL-MPC and RL approaches across different prediction horizons.
+    Creates a comparison plot between (S)MPC, RL-SMPC and RL approaches across different prediction horizons.
     The function generates a line plot showing the cumulative rewards achieved by different control approaches:
     - Model Predictive Control (MPC)
-    - Reinforcement Learning with MPC (RL-MPC) 
+    - Stochstic Model Predictive Control (MPC)
+    - Reinforcement Learning with Stochsatic MPC (RL-SMPC) 
     - Pure Reinforcement Learning (RL)
     Parameters
     ----------
@@ -109,7 +106,8 @@ def create_plot(figure_name, project, data, horizons, model_names, mode, variabl
         Dictionary containing the results data with the following structure:
         {
             'mpc': {horizon: {'rewards': [...]}},
-            'rlmpc': {horizon: {model_name: {'rewards': [...]}}},
+            'smpc': {horizon: {'rewards': [...]}},
+            'rlsmpc': {horizon: {model_name: {'rewards': [...]}}},
             'rl': {model_name: {'rewards': [...]}}
         }
     horizons : list
@@ -131,7 +129,7 @@ def create_plot(figure_name, project, data, horizons, model_names, mode, variabl
     fig, ax = plt.subplots(figsize=(WIDTH, HEIGHT), dpi=300)
     
     # n_colors = max(len(data.keys()) + len(model_names), 8)  # Ensure at least 8 colors
-    colors = cmc.batlowS
+    # colors = cmc.batlowS
     horizon_nums = [int(h[0]) for h in horizons]
 
     # Plot MPC results
@@ -156,7 +154,7 @@ def create_plot(figure_name, project, data, horizons, model_names, mode, variabl
             )
         color_counter += 1
 
-    # Plot Stochastic MPC results
+    # Plot SMPC results
     mean_smpc_final_rewards = []
     std_smpc_final_rewards = []
     for h in horizons:
@@ -205,54 +203,54 @@ def create_plot(figure_name, project, data, horizons, model_names, mode, variabl
             color_counter += 1
 
 
-    # Plot Stochastic RL-SMPC first-order results
-    for idx, model in enumerate(model_names):
-        mean_rlmpc_final_rewards = []
-        std_rlmpc_final_rewards = []
+    # # Plot Stochastic RL-SMPC first-order results
+    # for idx, model in enumerate(model_names):
+    #     mean_rlmpc_final_rewards = []
+    #     std_rlmpc_final_rewards = []
 
-        for h in horizons:
-            if h in data['rl-first-terminal-smpc']:
-                grouped_runs = data['rl-first-terminal-smpc'][h][model].groupby("run")
-                cumulative_rewards = grouped_runs[variable].sum()
+    #     for h in horizons:
+    #         if h in data['rl-first-terminal-smpc']:
+    #             grouped_runs = data['rl-first-terminal-smpc'][h][model].groupby("run")
+    #             cumulative_rewards = grouped_runs[variable].sum()
 
-                mean_rlmpc_final_rewards.append(cumulative_rewards.mean())
-                std_rlmpc_final_rewards.append(cumulative_rewards.std())
+    #             mean_rlmpc_final_rewards.append(cumulative_rewards.mean())
+    #             std_rlmpc_final_rewards.append(cumulative_rewards.std())
 
-        n2plot = len(mean_rlmpc_final_rewards)
-        if mean_rlmpc_final_rewards:
-            ax.plot(horizon_nums[:n2plot], mean_rlmpc_final_rewards[:n2plot], 'o-', label=r'RL$^1$-SMPC', color=colors(color_counter))
-            if mode == "stochastic":
-                ax.fill_between(
-                    horizon_nums[:n2plot], 
-                    np.array(mean_rlmpc_final_rewards[:n2plot]) - np.array(std_rlmpc_final_rewards[:n2plot]),
-                    np.array(mean_rlmpc_final_rewards[:n2plot]) + np.array(std_rlmpc_final_rewards[:n2plot]),
-                    color=colors(color_counter), alpha=0.3
-                )
-            color_counter += 1
+    #     n2plot = len(mean_rlmpc_final_rewards)
+    #     if mean_rlmpc_final_rewards:
+    #         ax.plot(horizon_nums[:n2plot], mean_rlmpc_final_rewards[:n2plot], 'o-', label=r'RL$^1$-SMPC', color=colors(color_counter))
+    #         if mode == "stochastic":
+    #             ax.fill_between(
+    #                 horizon_nums[:n2plot], 
+    #                 np.array(mean_rlmpc_final_rewards[:n2plot]) - np.array(std_rlmpc_final_rewards[:n2plot]),
+    #                 np.array(mean_rlmpc_final_rewards[:n2plot]) + np.array(std_rlmpc_final_rewards[:n2plot]),
+    #                 color=colors(color_counter), alpha=0.3
+    #             )
+    #         color_counter += 1
 
-    # Plot RL-MPC and RL results for each model
-    for idx, model in enumerate(model_names, 1+2*len(Ns)):
-        # Plot RL-MPC
-        mean_rlmpc_final_rewards = []
-        std_rlmpc_final_rewards = []
-        for h in horizons:
-            if h in data['rlmpc'] and model in data['rlmpc'][h]:
-                grouped_runs = data['rlmpc'][h][model].groupby("run")
-                cumulative_rewards = grouped_runs[variable].sum()
+    # # Plot RL-MPC and RL results for each model
+    # for idx, model in enumerate(model_names, 1+2*len(Ns)):
+    #     # Plot RL-MPC
+    #     mean_rlmpc_final_rewards = []
+    #     std_rlmpc_final_rewards = []
+    #     for h in horizons:
+    #         if h in data['rlmpc'] and model in data['rlmpc'][h]:
+    #             grouped_runs = data['rlmpc'][h][model].groupby("run")
+    #             cumulative_rewards = grouped_runs[variable].sum()
 
-                mean_rlmpc_final_rewards.append(cumulative_rewards.mean())
-                std_rlmpc_final_rewards.append(cumulative_rewards.std())
-        n2plot = len(mean_rlmpc_final_rewards)
-        if mean_rlmpc_final_rewards:
-            ax.plot(horizon_nums[:n2plot], mean_rlmpc_final_rewards[:n2plot], 'o-', 
-                   label=f'RL-MPC ({model})', color=colors(color_counter))
-            if mode == "stochastic":
-                ax.fill_between(
-                    horizon_nums[:n2plot],
-                    np.array(mean_rlmpc_final_rewards[:n2plot]) - np.array(std_rlmpc_final_rewards[:n2plot]),
-                    np.array(mean_rlmpc_final_rewards[:n2plot]) + np.array(std_rlmpc_final_rewards[:n2plot]),
-                    color=colors(color_counter), alpha=0.3
-                )
+    #             mean_rlmpc_final_rewards.append(cumulative_rewards.mean())
+    #             std_rlmpc_final_rewards.append(cumulative_rewards.std())
+    #     n2plot = len(mean_rlmpc_final_rewards)
+    #     if mean_rlmpc_final_rewards:
+    #         ax.plot(horizon_nums[:n2plot], mean_rlmpc_final_rewards[:n2plot], 'o-', 
+    #                label=f'RL-MPC ({model})', color=colors(color_counter))
+    #         if mode == "stochastic":
+    #             ax.fill_between(
+    #                 horizon_nums[:n2plot],
+    #                 np.array(mean_rlmpc_final_rewards[:n2plot]) - np.array(std_rlmpc_final_rewards[:n2plot]),
+    #                 np.array(mean_rlmpc_final_rewards[:n2plot]) + np.array(std_rlmpc_final_rewards[:n2plot]),
+    #                 color=colors(color_counter), alpha=0.3
+    #             )
 
     for idx, model in enumerate(model_names):
         # Plot RL horizontal line
@@ -264,6 +262,7 @@ def create_plot(figure_name, project, data, horizons, model_names, mode, variabl
         color_counter += 1
         ax.yaxis.set_major_locator(plt.LinearLocator(3))
         ax.yaxis.set_major_formatter(plt.FormatStrFormatter('%.1f'))
+
     ax.set_xlabel('Prediction Horizon (H)')
     if variable == 'rewards':
         ax.set_ylabel(f'Cumulative {variable[:-1]}')
@@ -273,11 +272,6 @@ def create_plot(figure_name, project, data, horizons, model_names, mode, variabl
     elif variable == 'penalties':
         ax.set_ylabel(f'Cumulative penalty')
 
-    # if mode == 'stochastic':
-
-    #     ax.set_title(f"Stochastic environment ($\delta={uncertainty_value}$)")
-    # else:
-    #     ax.set_title('Deterministic environment')
     ax.grid()
     fig.tight_layout()
     # Save plot
@@ -290,7 +284,6 @@ def create_plot(figure_name, project, data, horizons, model_names, mode, variabl
                 bbox_inches='tight', dpi=300)
     fig.savefig(f'{dir_path}{variable}{uncertainty_suffix}.png', format='png',
                 bbox_inches='tight', dpi=300)
-
     plt.show()
 
 def main():
