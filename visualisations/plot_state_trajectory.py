@@ -1,4 +1,4 @@
-from visualisations.rl_smpc_performance import load_data
+from rl_smpc_performance import load_data
 import matplotlib.pyplot as plt
 import plot_config
 from matplotlib.lines import Line2D
@@ -25,11 +25,11 @@ def plot_states(fig, axes, row, df, nplots, var, labels, ylabels, linestyle, col
     HEIGHT = WIDTH * 0.25
 
     df_mean = df.mean().reset_index()
-    df_mean = df_mean[25 < df_mean["time"]]
-    df_mean = df_mean[df_mean["time"] < 28]
+    df_mean = df_mean[5 < df_mean["time"]]
+    df_mean = df_mean[df_mean["time"] < 8]
     df_std = df.std().reset_index()
-    df_std = df_std[25 < df_std["time"]]
-    df_std = df_std[df_std["time"] < 28]
+    df_std = df_std[5 < df_std["time"]]
+    df_std = df_std[df_std["time"] < 8]
     time = df_mean["time"].values
 
 
@@ -51,11 +51,11 @@ def plot_states(fig, axes, row, df, nplots, var, labels, ylabels, linestyle, col
 
 def static_plot():
     model_name = "restful-pyramid-7"
-    H = "1H"
+    H = "2H"
     data, horizons = load_data([model_name], mode="stochastic", project="SMPC", Ns=[], smpc=True, zero_order=True, terminal=True, first_order=False, uncertainty_value=0.1)
-    mpc1h = data['mpc'][H]
+    mpc1h = data['smpc'][H]
     rlmpc1h = data['rl-zero-terminal-smpc'][H][model_name]
-    mpc6h = data['mpc']["6H"]
+    mpc6h = data['smpc']["6H"]
     rlmpc6h = data['rl-zero-terminal-smpc']["6H"][model_name]
 
 
@@ -69,20 +69,20 @@ def static_plot():
 
     fig, axes = plt.subplots(2, 4, sharex=True, figsize=(16, 4), dpi=180)
     row = 0
-    fig, axes = plot_states(fig, axes, row,  mpc1h, 4, "y", ["MPC"], ylabels, "-", color="C0", bounds=bounds) 
+    fig, axes = plot_states(fig, axes, row,  mpc1h, 4, "y", ["SMPC"], ylabels, "-", color="C0", bounds=bounds) 
     fig, axes = plot_states(fig, axes, row, rlmpc1h, 4, "y", ["RL-MPC"], ylabels, "-", color="C3", bounds=bounds) 
 
-    fig, axes = plot_states(fig, axes, row, mpc6h, 4, "y", ["MPC"], ylabels, "--", color="C0", bounds=bounds) 
-    fig, axes = plot_states(fig, axes, row, rlmpc6h, 4, "y", ["RL-MPC"], ylabels, "--", color="C3", bounds=bounds) 
+    # fig, axes = plot_states(fig, axes, row, mpc6h, 4, "y", ["SMPC"], ylabels, "--", color="C0", bounds=bounds) 
+    # fig, axes = plot_states(fig, axes, row, rlmpc6h, 4, "y", ["RL-MPC"], ylabels, "--", color="C3", bounds=bounds) 
 
     bounds = [None, None, None]
     ylabels = [r"u$_{CO_2}$ (mg/m$^2$/s)", r"u$_{vent}$ (m/s)", r"u$_{heat}$ (W/m$^2$)"]
     row=1
-    fig, axes = plot_states(fig, axes, row,  mpc1h, 3, "u", ["MPC"], ylabels, "-", color="C0", bounds=bounds) 
+    fig, axes = plot_states(fig, axes, row,  mpc1h, 3, "u", ["SMPC"], ylabels, "-", color="C0", bounds=bounds) 
     fig, axes = plot_states(fig, axes, row, rlmpc1h, 3, "u", ["RL-MPC"], ylabels, "-", color="C3", bounds=bounds) 
 
-    fig, axes = plot_states(fig, axes, row, mpc6h, 3, "u", ["MPC"], ylabels, "--", color="C0", bounds=bounds) 
-    fig, axes = plot_states(fig, axes, row, rlmpc6h, 3, "u", ["RL-MPC"], ylabels, "--", color="C3", bounds=bounds) 
+    # fig, axes = plot_states(fig, axes, row, mpc6h, 3, "u", ["SMPC"], ylabels, "--", color="C0", bounds=bounds) 
+    # fig, axes = plot_states(fig, axes, row, rlmpc6h, 3, "u", ["RL-MPC"], ylabels, "--", color="C3", bounds=bounds) 
 
     # Hide the last axes in the last row
     axes[-1, -1].axis('off')
@@ -98,11 +98,11 @@ def static_plot():
     ]
     
     # Create the legend for algorithm type
-    leg1 = axes[0][0].legend(color_handles, ["MPC", "RL-MPC"], title="Algorithm",
+    leg1 = axes[0][0].legend(color_handles, ["SMPC", "RL-MPC"], title="Algorithm",
                         loc="upper left", bbox_to_anchor=(0, 1))
     # Create a second legend for horizon using line styles
-    leg2 = axes[0][0].legend(linestyle_handles, ["1H", "6H"], title="Horizon",
-                        loc="lower left", bbox_to_anchor=(0.6, 0.0))
+    # leg2 = axes[0][0].legend(linestyle_handles, ["1H", "6H"], title="Horizon",
+                        # loc="lower left", bbox_to_anchor=(0.6, 0.0))
     # Ensure both legends are displayed
     axes[0][0].add_artist(leg1)
 
@@ -112,10 +112,10 @@ def static_plot():
 def animate_states(fig, ax, mpc_df, rlmpc_df, nplots, var, ylabels, bounds, colors=["C0", "C3"], linestyles=["-", "-"]):
     mpc_mean = mpc_df.mean().reset_index()
     rlmpc_mean = rlmpc_df.mean().reset_index()
-    mpc_mean = mpc_mean[25 < mpc_mean["time"]]
-    mpc_mean = mpc_mean[mpc_mean["time"] < 30]
-    rlmpc_mean = rlmpc_mean[25< rlmpc_mean["time"]]
-    rlmpc_mean = rlmpc_mean[rlmpc_mean["time"]<30]
+    mpc_mean = mpc_mean[0 < mpc_mean["time"]]
+    mpc_mean = mpc_mean[mpc_mean["time"] < 4]
+    rlmpc_mean = rlmpc_mean[0< rlmpc_mean["time"]]
+    rlmpc_mean = rlmpc_mean[rlmpc_mean["time"]<4]
     time = mpc_mean["time"].values
 
     lines = []

@@ -7,13 +7,14 @@ import pandas as pd
 import matplotlib.pyplot as plt
 
 import plot_config
+import numpy as np
 
 plt.rcParams["axes.spines.top"] = True
 plt.rcParams["axes.spines.right"] = True
 plt.rcParams["axes.linewidth"] = 1  # Axis border thickness
 
 
-WIDTH = 87.5 * 0.03937
+WIDTH = 61 * 0.03937
 HEIGHT = WIDTH * 0.75
 
 def extract_params_mpc(filename):
@@ -34,7 +35,7 @@ def extract_params_rlsmpc(filename):
     Extract h and delta from filename with pattern "{model}-zero-order-terminal-{h}H-{delta}.csv".
     """
     basename = os.path.basename(filename)
-    pattern = r".+-zero-order-terminal-(\d+)H-([\d.]+)\.csv"
+    pattern = r".+-zero-order-terminal-box-constraints-(\d+)H-([\d.]+)\.csv"
     match = re.match(pattern, basename)
     if match:
         h = int(match.group(1))
@@ -50,14 +51,54 @@ def get_mean_reward(csv_file, column='rewards'):
     df_grouped = df.groupby('run')
     return df_grouped['rewards'].sum().mean(), df_grouped['econ_rewards'].sum().mean(), df_grouped['penalties'].sum().mean()
 
+def compute_diff_matrices(mpc_results, rlsmpc_results, horizons, uncertainties):
+    """
+    Compute difference matrices for rewards, EPI, and penalties.
+
+    Each of the input dictionaries maps (h, delta) pairs to a tuple:
+        (mean_reward, mean_epi, mean_penalty)
+
+    The differences are computed as follows:
+        • diff_matrix_rewards: (rlsmpc mean reward) - (mpc mean reward)
+        • diff_matrix_epi: (rlsmpc mean EPI) - (mpc mean EPI)
+        • diff_matrix_penalty: (mpc mean penalty) - (rlsmpc mean penalty)
+
+    Parameters:
+        mpc_results (dict): Dictionary with mpc results.
+        rlsmpc_results (dict): Dictionary with rl-smpc results.
+        horizons (list): Sorted list of prediction horizons.
+        uncertainties (list): Sorted list of uncertainties.
+
+    Returns:
+        tuple: Three NumPy arrays (diff_matrix_rewards, diff_matrix_epi, diff_matrix_penalty)
+    """
+
+    # Determine common (h, delta) pairs
+    common_keys = set(mpc_results.keys()) & set(rlsmpc_results.keys())
+
+    # Initialize matrices with NaNs
+    diff_matrix = np.full((len(uncertainties), len(horizons)), np.nan)
+
+    for i, delta in enumerate(uncertainties):
+        for j, h in enumerate(horizons):
+            if (h, delta) in common_keys:
+                mpc_reward = mpc_results[(h, delta)]
+                rlsmpc_reward = rlsmpc_results[(h, delta)]
+                diff_matrix[i, j] = ((rlsmpc_reward - mpc_reward) / abs(mpc_reward)) * 100
+    return diff_matrix
+
+
 def main():
     # Define directories for the two algorithms
     mpc_dir = 'data/uncertainty-comparison/stochastic/mpc'
     rlsmpc_dir = 'data/uncertainty-comparison/stochastic/rlsmpc'
+    rl_dir = "data/uncertainty-comparison/stochastic/rl"
+
 
     # Dictionaries to hold the mean reward for each (h, delta)
     mpc_rewards = {}
     rlsmpc_rewards = {}
+    rl_rewards = {}
 
     # Dictionaries to hold the mean EPI for each (h, delta)
     mpc_EPI = {}
@@ -84,7 +125,7 @@ def main():
         mpc_penalty[(h, delta)] = mean_penalty
 
     # Process rl-smpc files
-    rlsmpc_pattern = os.path.join(rlsmpc_dir, "*-zero-order-terminal-*-*.csv")
+    rlsmpc_pattern = os.path.join(rlsmpc_dir, "*-zero-order-terminal-box-constraints*-*.csv")
     for filepath in glob.glob(rlsmpc_pattern):
         h, delta = extract_params_rlsmpc(filepath)
         if h is None:
@@ -97,6 +138,11 @@ def main():
         rlsmpc_rewards[(h, delta)] = mean_reward
         rlsmpc_EPI[(h, delta)] = mean_epi
         rlsmpc_penalty[(h, delta)] = mean_penalty
+    
+    rl_models = [
+        "serene-vortex-31","clear-water-33","stoic-fire-34","fresh-durian-18",
+        "cosmic-sun-35","dry-bee-36","soft-river-37","revived-snow-38"
+    ]
 
     # Get common (h, delta) pairs available in both datasets
     common_keys = set(mpc_rewards.keys()) & set(rlsmpc_rewards.keys())
@@ -108,58 +154,53 @@ def main():
     horizons = sorted({h for h, _ in common_keys})
     uncertainties = sorted({delta for _, delta in common_keys})
 
-    # Create a matrix for storing differences (rl-smpc mean reward - mpc mean reward)
-    diff_matrix_rewards = np.full((len(uncertainties), len(horizons)), np.nan)
-    for i, delta in enumerate(uncertainties):
-        for j, h in enumerate(horizons):
-            if (h, delta) in common_keys:
-                diff = rlsmpc_rewards[(h, delta)] - mpc_rewards[(h, delta)]
-                diff_matrix_rewards[i, j] = diff
+    for i, model in enumerate(rl_models):
+        delta = uncertainties[i]
+        filepath = os.path.join(rl_dir, f"{model}.csv")
+        try:
+            mean_reward, mean_epi, mean_penalty = get_mean_reward(filepath)
+        except Exception as e:
+            print(f"Error reading {filepath}: {e}")
+            continue
+        
+        for h in horizons:
+            rl_rewards[(h, delta)] = mean_reward
 
-    # Create a matrix for storing differences (rl-smpc mean reward - mpc mean reward)
-    diff_matrix_epi = np.full((len(uncertainties), len(horizons)), np.nan)
-    for i, delta in enumerate(uncertainties):
-        for j, h in enumerate(horizons):
-            if (h, delta) in common_keys:
-                diff = rlsmpc_EPI[(h, delta)] - mpc_EPI[(h, delta)]
-                diff_matrix_epi[i, j] = diff
 
-    # Create a matrix for storing differences (rl-smpc mean reward - mpc mean reward)
-    diff_matrix_penalty = np.full((len(uncertainties), len(horizons)), np.nan)
-    for i, delta in enumerate(uncertainties):
-        for j, h in enumerate(horizons):
-            if (h, delta) in common_keys:
-                diff = mpc_penalty[(h, delta)] - rlsmpc_penalty[(h, delta)]
-                diff_matrix_penalty[i, j] = diff
-
-    m = max(abs(diff_matrix_penalty.max()), abs(diff_matrix_penalty.min()), abs(diff_matrix_rewards.max()), abs(diff_matrix_rewards.min()), abs(diff_matrix_epi.max()), abs(diff_matrix_epi.min()))
+    diff_matrix_rewards = compute_diff_matrices(mpc_rewards, rlsmpc_rewards, horizons, uncertainties)
+    m = max(abs(diff_matrix_rewards.max()), abs(diff_matrix_rewards.min()))
 
     # Plot heatmap REWARDS
-    fig, ax = create_heatmap_figure(horizons, uncertainties)
+    fig, ax = create_heatmap_figure(horizons, uncertainties, title="RL-SMPC vs MPC")
     fig, ax = plot_heatmap(diff_matrix_rewards, ax, fig, 'reward', m)
-
-    # Plot heatmap EPI
-    fig, ax = create_heatmap_figure(horizons, uncertainties)
-    fig, ax = plot_heatmap(diff_matrix_epi, ax, fig, "EPI", m)
-
-    # Plot heatmap Penalty
-    fig, ax = create_heatmap_figure(horizons, uncertainties)
-    fig, ax = plot_heatmap(diff_matrix_penalty, ax, fig, "Penalty", m)
+    fig.savefig("heatmap-rlsmpc-mpc.svg", dpi=300, bbox_inches='tight', format='svg')
 
     plt.show()
 
+    diff_matrix_rewards = compute_diff_matrices(rl_rewards, rlsmpc_rewards, horizons, uncertainties)
+    m = max(abs(diff_matrix_rewards.max()), abs(diff_matrix_rewards.min()), m)
+
+    # Plot heatmap REWARDS
+    fig, ax = create_heatmap_figure(horizons, uncertainties, title="RL-SMPC vs RL")
+    fig, ax = plot_heatmap(diff_matrix_rewards, ax, fig, 'reward', m)
+    fig.savefig("heatmap-rlsmpc-rl.svg", dpi=300, bbox_inches='tight', format='svg')
+
+    plt.show()
 
 def plot_heatmap(data, ax, fig, variable, m):
-    im = ax.imshow(data, cmap="coolwarm", vmin=-m, vmax=m, aspect='auto', origin='upper')
-    cbar = fig.colorbar(im, ax=ax, ticks=[-1.6, 0, 1.6])
-    cbar.set_label(f'Difference mean cumulative {variable}')
+    print(m)
+    im = ax.imshow(data, cmap="viridis", vmin=0, vmax=135, aspect='auto', origin='upper')
+    cbar = fig.colorbar(im, ax=ax, ticks=[0, 65, 130])
+    cbar.set_label(f'$\Delta$% Cumulative {variable}')
     ax.invert_yaxis()
     plt.tight_layout()
+
     return fig, ax
 
-def create_heatmap_figure(horizons, uncertainties):
+def create_heatmap_figure(horizons, uncertainties, title):
     fig = plt.figure(figsize=(WIDTH, HEIGHT), dpi=300)
     ax = plt.gca()
+    # ax.set_title(title)
     ax.set_xticks(np.arange(len(horizons)))
     ax.set_xticklabels(horizons)
 

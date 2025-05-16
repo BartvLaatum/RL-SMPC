@@ -125,7 +125,7 @@ def create_plot(figure_name, project, data, horizons, model_names, mode, variabl
     None
         Displays the plot and optionally saves it to disk
     """
-    WIDTH = 87.5 * 0.03937
+    WIDTH = 60 * 0.0393700787
     HEIGHT = WIDTH * 0.75
     color_counter  = 0
     fig, ax = plt.subplots(figsize=(WIDTH, HEIGHT), dpi=300)
@@ -169,13 +169,13 @@ def create_plot(figure_name, project, data, horizons, model_names, mode, variabl
             std_smpc_final_rewards.append(cumulative_rewards.std())
     n2plot = len(mean_smpc_final_rewards)
     if mean_smpc_final_rewards:
-        ax.plot(horizon_nums[:n2plot], mean_smpc_final_rewards[:n2plot], 'o-', label=f'SMPC', color="C8", alpha=0.8)
+        ax.plot(horizon_nums[:n2plot], mean_smpc_final_rewards[:n2plot], 'o-', label=f'SMPC', color="#00a693", alpha=0.8)
         if mode == "stochastic":
             ax.fill_between(
                 horizon_nums[:n2plot], 
                 np.array(mean_smpc_final_rewards[:n2plot]) - np.array(std_smpc_final_rewards[:n2plot]),
                 np.array(mean_smpc_final_rewards[:n2plot]) + np.array(std_smpc_final_rewards[:n2plot]),
-                color="C8", alpha=0.3
+                color="#00a693", alpha=0.3
             )
         color_counter += 1
 
@@ -194,7 +194,7 @@ def create_plot(figure_name, project, data, horizons, model_names, mode, variabl
 
         n2plot = len(mean_rlmpc_final_rewards)
         if mean_rlmpc_final_rewards:
-            ax.plot(horizon_nums[:n2plot], mean_rlmpc_final_rewards[:n2plot], 'o-', label=r'RL$^0$-SMPC', color="C3", alpha=0.8)
+            ax.plot(horizon_nums[:n2plot], mean_rlmpc_final_rewards[:n2plot], 'o-', label=r'RL-SMPC', color="C3", alpha=0.8)
             if mode == "stochastic":
                 ax.fill_between(
                     horizon_nums[:n2plot], 
@@ -262,7 +262,8 @@ def create_plot(figure_name, project, data, horizons, model_names, mode, variabl
             ax.hlines(rl_final_reward, min(horizon_nums), max(horizon_nums),
                         label=f'RL', color="C7", linestyle='--', alpha=0.8)
         color_counter += 1
-
+        ax.yaxis.set_major_locator(plt.LinearLocator(3))
+        ax.yaxis.set_major_formatter(plt.FormatStrFormatter('%.1f'))
     ax.set_xlabel('Prediction Horizon (H)')
     if variable == 'rewards':
         ax.set_ylabel(f'Cumulative {variable[:-1]}')
@@ -278,16 +279,18 @@ def create_plot(figure_name, project, data, horizons, model_names, mode, variabl
     # else:
     #     ax.set_title('Deterministic environment')
     ax.grid()
-    plt.tight_layout()
-    
+    fig.tight_layout()
     # Save plot
     dir_path = f'figures/{project}/{mode}/{figure_name}/'
     os.makedirs(dir_path, exist_ok=True)
     if variable == "econ_rewards":
         variable = "EPI"
     uncertainty_suffix = f'-{uncertainty_value}' if uncertainty_value else ''
-    plt.savefig(f'{dir_path}{variable}{uncertainty_suffix}.png', 
+    fig.savefig(f'{dir_path}{variable}{uncertainty_suffix}.svg', format='svg',
                 bbox_inches='tight', dpi=300)
+    fig.savefig(f'{dir_path}{variable}{uncertainty_suffix}.png', format='png',
+                bbox_inches='tight', dpi=300)
+
     plt.show()
 
 def main():
