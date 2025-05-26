@@ -123,7 +123,7 @@ class RLSMPC(SMPC):
 
         # Creating casadi version of the actor
         actor_casadi_model = l4c.L4CasADi(actor_fn(self.model.actor.latent_pi, self.model.actor.mu), device="cpu", name=f"actor_{run}")
-        obs_sym = ca.MX.sym("obs_sym", 12, 1)
+        obs_sym = ca.MX.sym("obs_sym", 60, 1)
         action_out = actor_casadi_model(obs_sym.T)
         self.actor_function = ca.Function(
             "action",
@@ -423,7 +423,7 @@ class RLSMPC(SMPC):
                 self.opti.subject_to(P[2, ll] >= self.lb_pen_w[0,1] * (self.y_min[2] - ys[2, ll]))
                 self.opti.subject_to(P[3, ll] >= self.ub_pen_w[0,1] * (ys[2, ll] - self.y_max[2]))
                 self.opti.subject_to(P[4, ll] >= self.lb_pen_w[0,2] * (self.y_min[3] - ys[3, ll]))
-                self.opti.subject_to(P[5, ll] >= self.ub_pen_w[0,2] * (ys[3, ll] - (self.y_max[3]-2.0)))
+                self.opti.subject_to(P[5, ll] >= self.ub_pen_w[0,2] * (ys[3, ll] - self.y_max[3]))
 
                 # COST FUNCTION WITH PENALTIES
                 delta_dw = xs[0, ll+1] - xs[0, ll]
@@ -619,13 +619,13 @@ class RLSMPC(SMPC):
                 self.opti.subject_to(P[2, ll] >= self.lb_pen_w[0,1] * (self.y_min[2] - ys[2, ll]))
                 self.opti.subject_to(P[3, ll] >= self.ub_pen_w[0,1] * (ys[2, ll] - self.y_max[2]))
                 self.opti.subject_to(P[4, ll] >= self.lb_pen_w[0,2] * (self.y_min[3] - ys[3, ll]))
-                self.opti.subject_to(P[5, ll] >= self.ub_pen_w[0,2] * (ys[3, ll] - (self.y_max[3]-2.0)))
+                self.opti.subject_to(P[5, ll] >= self.ub_pen_w[0,2] * (ys[3, ll] - (self.y_max[3])))
 
                 # COST FUNCTION WITH PENALTIES
                 delta_dw = xs[0, ll+1] - xs[0, ll]
                 J -= compute_economic_reward(delta_dw, p, self.dt, uk)
                 J += (P[0, ll]+ P[1, ll]+P[2, ll]+P[3, ll]+P[4, ll]+P[5, ll])
-                
+
                 # Input rate constraint on the variation from the previous control action)
                 if ll < self.Np-1:
                     next_input = self.compute_control_input(xs, ll+1, us, os_y, os_u, theta, jac_y_full, jac_input_full, uk)
@@ -839,26 +839,26 @@ class Experiment:
             timestep = log["obs_norm"][7]
             d = log["obs_norm"][8:]
 
-            # Compute Jacobians for each timestep
-            jacobian_obs_state = []
-            jacobian_obs_input = []
-            for t in range(self.mpc.Np):
-                y_t = y[:, t]
-                u_t = u[:, t]
-                timestep_t = timestep[t]
-                d_t = d[:, t]
+            # # Compute Jacobians for each timestep
+            # jacobian_obs_state = []
+            # jacobian_obs_input = []
+            # for t in range(self.mpc.Np):
+            #     y_t = y[:, t]
+            #     u_t = u[:, t]
+            #     timestep_t = timestep[t]
+            #     d_t = d[:, t]
                 
-                jac_t_state = self.mpc.jac_actor_wrt_state(y_t, u_t, timestep_t, d_t).toarray()
-                jacobian_obs_state.append(jac_t_state)
+            #     jac_t_state = self.mpc.jac_actor_wrt_state(y_t, u_t, timestep_t, d_t).toarray()
+            #     jacobian_obs_state.append(jac_t_state)
 
-                jac_t_input = self.mpc.jac_actor_wrt_input(y_t, u_t, timestep_t, d_t).toarray()
-                jacobian_obs_input.append(jac_t_input)
+            #     jac_t_input = self.mpc.jac_actor_wrt_input(y_t, u_t, timestep_t, d_t).toarray()
+            #     jacobian_obs_input.append(jac_t_input)
 
-            jacobian_obs_state_samples.append(np.hstack(jacobian_obs_state))
-            jacobian_obs_input_samples.append(np.hstack(jacobian_obs_input))
+            # jacobian_obs_state_samples.append(np.hstack(jacobian_obs_state))
+            # jacobian_obs_input_samples.append(np.hstack(jacobian_obs_input))
 
-        return (xk_samples, terminal_xs, uk_samples, end_points, obs_norm_y_samples, obs_norm_input_samples, 
-                jacobian_obs_state_samples, jacobian_obs_input_samples)
+        return (xk_samples, terminal_xs, uk_samples, end_points)#, obs_norm_y_samples, obs_norm_input_samples, 
+                # jacobian_obs_state_samples, jacobian_obs_input_samples)
 
     def get_taylor_coefficients(self, end_points: List[np.ndarray]) -> List[ca.DM]:
         """
@@ -927,8 +927,9 @@ class Experiment:
                 self.mpc.eval_env.set_env_state(self.x[:, ll], self.x[:,ll], self.u[:,ll], ll)
             else:
                 self.mpc.eval_env.set_env_state(self.x[:, ll], self.x[:,ll-1], self.u[:,ll], ll)
-            (xk_samples, terminal_xs, uk_samples, end_points, obs_norm_y_samples, obs_norm_input_samples, 
-                jacobian_obs_state_samples, jacobian_obs_input_samples) = \
+            #, obs_norm_y_samples, obs_norm_input_samples, 
+            # jacobian_obs_state_samples, jacobian_obs_input_samples) = \
+            (xk_samples, terminal_xs, uk_samples, end_points) =\
                 self.generate_samples(p_samples)
 
             # Get Taylor coefficients for all samples
@@ -956,23 +957,23 @@ class Experiment:
                         taylor_coefficients
                     )
 
-            elif order == "first":
-                theta_opt, xs_opt, ys_opt, J_mpc_1 = self.mpc.MPC_func(
-                    self.x[:, ll],          # initial state
-                    ds,                     # disturbances
-                    self.u[:, ll],          # initial input
-                    timestep,               # current timestep
-                    theta_init,             # initial guess for theta
-                    *xk_samples,            # initial guess for the states
-                    *terminal_xs,           # terminal state constraint
-                    *uk_samples,            # input samples
-                    *obs_norm_y_samples,    # observation y samples
-                    *obs_norm_input_samples,        # observation input samples
-                    *jacobian_obs_state_samples,    # jacobian evaluated at observation y samples
-                    *jacobian_obs_input_samples,    # jacobian evaluated at observation input samples
-                    *p_sample_list,                  # parameter samples
-                    *taylor_coefficients            # taylor coefficients for value function approximation
-                )
+            # elif order == "first":
+            #     theta_opt, xs_opt, ys_opt, J_mpc_1 = self.mpc.MPC_func(
+            #         self.x[:, ll],          # initial state
+            #         ds,                     # disturbances
+            #         self.u[:, ll],          # initial input
+            #         timestep,               # current timestep
+            #         theta_init,             # initial guess for theta
+            #         *xk_samples,            # initial guess for the states
+            #         *terminal_xs,           # terminal state constraint
+            #         *uk_samples,            # input samples
+            #         *obs_norm_y_samples,    # observation y samples
+            #         *obs_norm_input_samples,        # observation input samples
+            #         *jacobian_obs_state_samples,    # jacobian evaluated at observation y samples
+            #         *jacobian_obs_input_samples,    # jacobian evaluated at observation input samples
+            #         *p_sample_list,                  # parameter samples
+            #         *taylor_coefficients            # taylor coefficients for value function approximation
+            #     )
 
             # Since the first RL sample always depends on x0 all the samples input (u) at t=0 will the same;
             # Additionally, the first order approximation does not require to be used in the first iteration
@@ -1378,14 +1379,10 @@ if __name__ == "__main__":
             env_path,
             rl_model_path,
             vf_path,
-            args.used_trained_vf
+            args.use_trained_vf
         )
 
-        if args.order == "zero":
-            rl_mpc.define_zero_order_snlp(p)
-        elif args.order == "first":
-            rl_mpc.define_first_order_snlp(p)
-
+        rl_mpc.define_zero_order_snlp(p)
         exp = Experiment(rl_mpc, save_name, args.project, args.weather_filename, args.uncertainty_value, p, exp_rng)
         exp.solve_nsmpc(args.order)
         exp.save_results(save_path)
