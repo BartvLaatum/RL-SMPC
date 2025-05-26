@@ -165,6 +165,18 @@ class SMPC:
         self.opti.set_value(self.init_u, u0)
         self.opti.set_value(self.ds, ds)
 
+        for i in range(self.Np):
+            self.opti.set_value(self.w_samples[i], w_samples_data[i])
+
+        if u_guess is not None:
+            for k in range(self.Np):
+                self.opti.set_initial(self.u_nodes[k], u_guess[k])
+
+        if x_guess is not None:
+            for i in range(self.Ns):
+                self.opti.set_initial(self.xs_list[i], x_guess[i])
+
+
         start_time = time()
         try:
             solution = self.opti.solve()
@@ -178,14 +190,14 @@ class SMPC:
 
         xs_opt = [solution.value(self.xs_list[i]) for i in range(self.Ns)]
         ys_opt = [solution.value(self.ys_list[i]) for i in range(self.Ns)]
-        u_nodes_opt = [solution.value(Uk) for Uk in self.u_nodes]
+        u_nodes_opt = [solution.value(Uk).reshape(3, -1) for Uk in self.u_nodes]
         self._prev_u_nodes = u_nodes_opt
-        self._prev_w_data    = [w.copy() for w in w_samples_data]
+        self._prev_w_data = [w.copy() for w in w_samples_data]
         J = solution.value(self.opti.f)
 
         return xs_opt, ys_opt, u_nodes_opt, J, solver_time, exit_message
 
-    def define_nlp(self, p: Dict[str, Any], perturb: bool) -> None:
+    def define_nlp(self, p: Dict[str, Any]) -> None:
         """
         Define the optimization problem for the nonlinear SMPC using CasADi's Opti stack.
         Including the cost function, constraints, and bounds.
@@ -201,8 +213,7 @@ class SMPC:
         #    stage 0: 3**0 = 1 node; stage 1: 3**1 = 3 nodes
         self.u_nodes = []
         for ll in range(self.Np):
-            n_nodes_k = self.branching**ll
-            Uk = self.opti.variable(self.nu, n_nodes_k)
+            Uk = self.opti.variable(self.nu, self.branching**ll)
             self.u_nodes.append(Uk)
 
         # Decision Variables (Control inputs, slack variables, states, outputs)
@@ -213,10 +224,10 @@ class SMPC:
 
 
         # process noise
-        self.w_samples = [
-            self.opti.parameter(self.nx, self.Np)
-            for _ in range(self.Ns)
-        ]
+        self.w_samples = []
+        for ll in range(self.Np):
+            w_node_samples = self.opti.parameter(self.nx, self.branching**(ll+1))
+            self.w_samples.append(w_node_samples)
 
         # Parameters
         self.x0 = self.opti.parameter(self.nx, 1)       # Initial state
@@ -232,7 +243,7 @@ class SMPC:
             ys = self.ys_list[i]
             # ps = self.p_samples[i]
             P = Ps[i]
-            ws = self.w_samples[i]
+            # ws = self.w_samples[i]
 
             # Initial Condition Constraint
             self.opti.subject_to(xs[:,0] == self.x0)
@@ -243,20 +254,17 @@ class SMPC:
                 # pick the shared control for that node
                 u_k = self.u_nodes[ll][:, node_id]
 
+                # pick the disturbance for that node
+                ws = self.w_samples[ll][:, self.branching**ll-1]
+
                 # nominal next state
                 F_nom = self.F(xs[:,ll], u_k, self.ds[:,ll], p)
 
                 # multiplicative uncertainty
-                if perturb:
-                    self.opti.subject_to(
-                        xs[:,ll+1]
-                        == F_nom * (1 + ws[:,ll])
-                    )
-                else:
-                    self.opti.subject_to(
-                        xs[:,ll+1]
-                        == F_nom
-                    )
+                self.opti.subject_to(
+                    xs[:,ll+1]
+                    == F_nom * (1 + ws)
+                )
 
                 self.opti.subject_to(ys[:, ll] == self.g(xs[:, ll+1]))
 
@@ -407,15 +415,13 @@ class Experiment:
             w_sample_data = self.generate_wsamples()
         """
         w_samples_data = []
-        for i in range(self.mpc.Ns):
-            w_data = self.mpc.rng.uniform(-self.uncertainty_value/2, self.uncertainty_value/2, size=(self.mpc.nx, self.mpc.Np))
+        for ll in range(self.mpc.Np):
+            w_data = self.mpc.rng.uniform(-self.uncertainty_value/2, self.uncertainty_value/2, size=(self.mpc.nx, self.mpc.branching**(ll+1)))
             w_samples_data.append(w_data)
-            self.mpc.opti.set_value(self.mpc.w_samples[i], w_data)
-
-
+            # self.mpc.opti.set_value(self.mpc.w_samples[ll], w_data)
         return w_samples_data
 
-    def initial_guess_xs(self, p_samples, x0, u_guess, ds) -> List[np.ndarray]:
+    def initial_guess_xs(self, w_samples, x0, u_guess, ds) -> List[np.ndarray]:
         """
         Generate initial guesses for the states based on the provided parametric samples.
 
@@ -433,12 +439,17 @@ class Experiment:
             xs = np.zeros((self.mpc.nx, self.mpc.Np + 1))
             xs[:, 0] = x0
             for ll in range(self.mpc.Np):
+                node_id = i // (self.mpc.branching**(self.mpc.Np - ll))
+                # pick the shared control for that node
+                u_k = u_guess[ll][:, node_id]
+                # print("ll:", ll)
+                ws = w_samples[ll][:, self.mpc.branching**(ll)-1]
                 xs[:, ll + 1] = self.mpc.F(
                     xs[:, ll],
-                    u_guess[:, ll],
+                    u_k,
                     ds[:, ll],
-                    p_samples[i][ll]
-                ).toarray().ravel()
+                    p
+                ).toarray().ravel() * (1 + ws)
             x_initial_guess.append(xs)
         return x_initial_guess
 
@@ -451,20 +462,27 @@ class Experiment:
         Returns:
             None
         """
-        u_initial_guess = np.ones((self.mpc.nu, self.mpc.Np)) * np.array(self.mpc.u_initial).reshape(self.mpc.nu, 1)
-
+        # u_initial_guess = np.ones((self.mpc.nu, self.mpc.Np)) * np.array(self.mpc.u_initial).reshape(self.mpc.nu, 1)
+        u_initial_guess = [np.ones((self.mpc.nu, self.mpc.branching**ll))*np.array(self.mpc.u_initial).reshape(self.mpc.nu, 1) for ll in range(self.mpc.Np)]
+        # print(u_initial_guess)
+        w_samples = self.generate_wsamples()
+        # breakpoint()
         for ll in tqdm(range(self.mpc.N)):
-            w_samples = self.generate_wsamples()
-            # x_initial_guess = self.initial_guess_xs(w_samples, self.x[:, ll], u_initial_guess, self.d[:, ll:ll+self.mpc.Np])
+            # take samples
+            x_initial_guess = self.initial_guess_xs(w_samples, self.x[:, ll], u_initial_guess, self.d[:, ll:ll+self.mpc.Np])
+            # print(x_initial_guess)
+            # breakpoint()
+            # Define the Stochastic MPC
             xs_opt, ys_opt, u_nodes_opt, J_opt, solver_time, exit_message = self.mpc.solve_ocp(
                 self.x[:, ll],
                 self.u[:, ll],
                 self.d[:, ll:ll+self.mpc.Np],
                 w_samples,
-                u_guess=None,
-                x_guess=None
+                u_guess=u_initial_guess,
+                x_guess=x_initial_guess
             )
-            self.u[:, ll+1] = u_nodes_opt[0]
+
+            self.u[:, ll+1] = u_nodes_opt[0][:, 0]
             # print(u_nodes_opt[0])
             # params = parametric_uncertainty(self.p, self.uncertainty_value, self.rng)
 
@@ -479,7 +497,9 @@ class Experiment:
 
             self.update_results(u_nodes_opt, J_opt, [], econ_rew, penalties, ll, solver_time, exit_message=exit_message)
 
-            # u_initial_guess = np.concatenate([us_opt[:, 1:], us_opt[:, -1][:, None]], axis=1)
+            u_initial_guess = [u_nodes_opt[k+1][:, :self.mpc.branching**k] for k in range(self.mpc.Np-1)] + [u_nodes_opt[-1]]
+            w_samples = [w_samples[k+1][:, :self.mpc.branching**(k+1)] for k in range(self.mpc.Np-1)] + [self.mpc.rng.uniform(-self.uncertainty_value/2, self.uncertainty_value/2, size=(self.mpc.nx, self.mpc.branching**(self.mpc.Np)))]
+            
 
     def solve_smpc_OL_predictions(self) -> None:
         """Solve the nonlinear Stochastic MPC problem.
@@ -706,7 +726,7 @@ if __name__ == "__main__":
     mpc_params = load_mpc_params(args.env_id)
     mpc_params["uncertainty_value"] = args.uncertainty_value
 
-    H = [0.5, 1, 1.5, 2]
+    H = [1, 2, 3]
     mpc_params["branching"] = 2
 
     env_params["n_days"] = 20
