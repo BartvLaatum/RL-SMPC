@@ -64,7 +64,7 @@ class FutureWeatherObservations(BaseObservations):
                 obs_names) -> None:
         self.obs_names = obs_names
         self.Np = 13
-        self.n_obs = len(obs_names) + self.Np*4 # 4 weather variables for Np time steps
+        self.n_obs = len(obs_names) + (self.Np-1)*4 # 4 weather variables for Np time steps
 
     def observation_space(self) -> spaces.Box:
         return spaces.Box(low=-1e-4, high=1e4, shape=(self.n_obs,), dtype=np.float32)
