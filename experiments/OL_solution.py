@@ -53,7 +53,7 @@ def rlsmpc_ol(env_params, mpc_params, exp_rng, save_name, project, weather_filen
     exp.solve_smpc_OL_predictions(order=order)
 
 def main(args):
-    h = 24
+    h = 3
     mpc_rng = np.random.default_rng(42)
     exp_rng = np.random.default_rng(666)
     env_params = load_env_params(args.env_id)
@@ -75,7 +75,7 @@ def main(args):
     # )
 
     rlsmpc_ol(env_params, mpc_params, exp_rng, save_name, args.project, args.weather_filename, args.uncertainty_value, 
-                args.env_id, "sac", "restful-pyramid-7", mode="stochastic", use_trained_vf=True, order="zero")
+                args.env_id, "sac", "brisk-resonance-24", mode="stochastic", use_trained_vf=True, order="zero")
 
 
 if __name__ == "__main__":

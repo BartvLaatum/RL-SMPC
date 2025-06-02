@@ -1011,20 +1011,18 @@ class Experiment:
         self.mpc.eval_env.reset()
         theta_init = np.zeros((self.mpc.nu, self.mpc.Np))
 
-        for ll in tqdm(range(1)):
+        for ll in tqdm(range(20*24*2)):
             p_samples = self.generate_psamples()
             if ll == 0:
                 self.mpc.eval_env.set_env_state(self.x[:, ll], self.x[:,ll], self.u[:,ll], ll)
             else:
                 self.mpc.eval_env.set_env_state(self.x[:, ll], self.x[:,ll-1], self.u[:,ll], ll)
-            (xk_samples, terminal_xs, uk_samples, end_points, obs_norm_y_samples, obs_norm_input_samples, 
-                jacobian_obs_state_samples, jacobian_obs_input_samples) = \
+            (xk_samples, terminal_xs, uk_samples, end_points) =\
                 self.generate_samples(p_samples)
 
             # Get Taylor coefficients for all samples
             taylor_coefficients = self.get_taylor_coefficients(end_points)
 
-            # Convert inputs to CasADi DM format; NOTE is this required??
             ds = self.d[:, ll:ll+self.mpc.Np+1]
             timestep = [ll]
 
@@ -1033,7 +1031,7 @@ class Experiment:
 
             # Call MPC function with all inputs as CasADi DM
             if order == "zero":
-                xs_opt, ys_opt, theta_opt, J_mpc_1, exit_message = \
+                xs_opt, ys_opt, theta_opt, J_mpc_1, solver_time, exit_message = \
                     self.mpc.solve_ocp(
                         self.x[:, ll], 
                         self.u[:,ll],
@@ -1047,42 +1045,29 @@ class Experiment:
                         taylor_coefficients
                     )
 
-            elif order == "first":
-                theta_opt, xs_opt, ys_opt, J_mpc_1 = self.mpc.MPC_func(
-                    self.x[:, ll],          # initial state
-                    ds,                     # disturbances
-                    self.u[:, ll],          # initial input
-                    timestep,               # current timestep
-                    theta_init,             # initial guess for theta
-                    *xk_samples,            # initial guess for the states
-                    *terminal_xs,           # terminal state constraint
-                    *uk_samples,            # input samples
-                    *obs_norm_y_samples,    # observation y samples
-                    *obs_norm_input_samples,        # observation input samples
-                    *jacobian_obs_state_samples,    # jacobian evaluated at observation y samples
-                    *jacobian_obs_input_samples,    # jacobian evaluated at observation input samples
-                    *p_sample_list,                  # parameter samples
-                    *taylor_coefficients            # taylor coefficients for value function approximation
-                )
+            # elif order == "first":
+            #     theta_opt, xs_opt, ys_opt, J_mpc_1 = self.mpc.MPC_func(
+            #         self.x[:, ll],          # initial state
+            #         ds,                     # disturbances
+            #         self.u[:, ll],          # initial input
+            #         timestep,               # current timestep
+            #         theta_init,             # initial guess for theta
+            #         *xk_samples,            # initial guess for the states
+            #         *terminal_xs,           # terminal state constraint
+            #         *uk_samples,            # input samples
+            #         *obs_norm_y_samples,    # observation y samples
+            #         *obs_norm_input_samples,        # observation input samples
+            #         *jacobian_obs_state_samples,    # jacobian evaluated at observation y samples
+            #         *jacobian_obs_input_samples,    # jacobian evaluated at observation input samples
+            #         *p_sample_list,                  # parameter samples
+            #         *taylor_coefficients            # taylor coefficients for value function approximation
+            #     )
 
             # Since the first RL sample always depends on x0 all the samples input (u) at t=0 will the same;
-            if order == "zero":
-                us_opt = uk_samples[0][:,0] + theta_opt[:, 0]
+            us_opt = uk_samples[0][:,0] + theta_opt[:, 0]
+            self.u[:, ll+1] = us_opt
 
-            elif order == "first":
-                jac_y_matrix = jacobian_obs_state_samples[0][:,:self.mpc.ny]
-                jac_input_matrix = jacobian_obs_input_samples[0][:,:self.mpc.nu]
-                obs_y = self.mpc.g(self.x[:, ll])
-                obs_norm_y = self.mpc.norm_obs_agent(obs_y, self.mpc.mean[:self.mpc.ny], self.mpc.variance[:self.mpc.ny])
-                obs_u = self.u[:, ll]
-                obs_norm_u = self.mpc.norm_obs_agent(obs_u, self.mpc.mean[self.mpc.ny:self.mpc.ny+self.mpc.nu], self.mpc.variance[self.mpc.ny:self.mpc.ny+self.mpc.nu])
-
-                # Compute control input
-                us_opt = uk_samples[0][:, 0] + ca.mtimes(jac_y_matrix, (obs_norm_y_samples[0][:, 0] - obs_norm_y)) + \
-                    ca.mtimes(jac_input_matrix, obs_norm_input_samples[0][:, 0] - obs_norm_u) + theta_opt[:, 0]
-
-            self.u[:, ll+1] = us_opt.toarray().ravel()
-
+            # use previous theta solution as warm start
             theta_init = np.concatenate([theta_opt[:, 1:], ca.reshape(theta_opt[:, -1], (self.mpc.nu, 1))], axis=1)
 
             # Evolve State
@@ -1095,8 +1080,8 @@ class Experiment:
             econ_rew = compute_economic_reward(delta_dw, get_parameters(), self.mpc.dt, self.u[:, ll+1])
             penalties = self.mpc.compute_penalties(self.y[:, ll+1])
 
-            xs_opt = xs_opt.toarray().reshape(self.mpc.Ns, self.mpc.nx, self.mpc.Np+1)
-            ys_opt = ys_opt.toarray().reshape(self.mpc.Ns, self.mpc.ny, self.mpc.Np)
+            xs_opt = np.array(xs_opt).reshape(self.mpc.Ns, self.mpc.nx, self.mpc.Np+1)
+            ys_opt = np.array(ys_opt).reshape(self.mpc.Ns, self.mpc.ny, self.mpc.Np)
 
             # Insert the first index of the third dimension of xs_opt into ys_opt
             # We need to reshape ys_opt to include space for the additional timestep
@@ -1117,9 +1102,16 @@ class Experiment:
             self.ys_opt_all[:, :, :, ll] = ys_opt
             self.p_samples_all[:,:,:,ll] = np.array(p_sample_list)
 
-            # self.update_results(us_opt, J_opt, [], econ_rew, penalties, ll)
-            self.update_results(uk_samples[0][:,:] + theta_opt[:, :], J_mpc_1, [], econ_rew, penalties, ll)
-        
+            self.update_results(
+                uk_samples[0][:,:] + theta_opt[:, :], 
+                J_mpc_1, [], 
+                econ_rew, 
+                penalties, 
+                ll, 
+                solver_time, 
+                exit_message
+            )
+
         # Save the open-loop predictions to file after all timesteps
         self.save_open_loop_predictions()
 

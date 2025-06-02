@@ -440,21 +440,25 @@ class Experiment:
             np.ndarray: the gradient of the cost function
             np.ndarray: the hessian of the cost function
         """
-        for ll in tqdm(range(1)):
-            print(f"solving timestep {ll}")
+        u_initial_guess = np.ones((self.mpc.nu, self.mpc.Np)) * np.array(self.mpc.u_initial).reshape(self.mpc.nu, 1)
+        for ll in tqdm(range(20*24*2)):
             p_samples = self.generate_psamples()
+
+            x_initial_guess = self.initial_guess_xs(p_samples, self.x[:, ll], u_initial_guess, self.d[:, ll:ll+self.mpc.Np])
 
             # we have to transpose p_samples since MPC_func expects matrix of shape (n_params, Np)
             p_sample_list = [p_samples[i].T for i in range(self.mpc.Ns)]
-            # breakpoint()
-            us_opt, xs_opt, ys_opt, J_opt = self.mpc.SMPC_func(
+
+            xs_opt, ys_opt, us_opt, J_opt, solver_time, exit_message = self.mpc.solve_ocp(
                 self.x[:, ll],
-                self.d[:, ll:ll+self.mpc.Np], 
-                self.u[:, ll], 
-                *p_sample_list
+                self.u[:, ll],
+                self.d[:, ll:ll+self.mpc.Np],
+                p_samples,
+                u_guess=u_initial_guess,
+                x_guess=x_initial_guess
             )
 
-            self.u[:, ll+1] = us_opt[:, 0].toarray().ravel()
+            self.u[:, ll+1] = us_opt[:, 0]
             params = parametric_uncertainty(self.p, self.mpc.uncertainty_value, self.rng)
 
             self.x[:, ll+1] = self.mpc.F(self.x[:, ll], self.u[:, ll+1], self.d[:, ll], params).toarray().ravel()
@@ -464,8 +468,8 @@ class Experiment:
             econ_rew = compute_economic_reward(delta_dw, get_parameters(), self.mpc.dt, self.u[:, ll+1])
             penalties = self.mpc.compute_penalties(self.y[:, ll+1])
 
-            xs_opt = xs_opt.toarray().reshape(self.mpc.Ns, self.mpc.nx, self.mpc.Np+1)
-            ys_opt = ys_opt.toarray().reshape(self.mpc.Ns, self.mpc.ny, self.mpc.Np)
+            xs_opt = np.array(xs_opt).reshape(self.mpc.Ns, self.mpc.nx, self.mpc.Np+1)
+            ys_opt = np.array(ys_opt).reshape(self.mpc.Ns, self.mpc.ny, self.mpc.Np)
 
             # Insert the first index of the third dimension of xs_opt into ys_opt
             # We need to reshape ys_opt to include space for the additional timestep
@@ -486,8 +490,9 @@ class Experiment:
             self.ys_opt_all[:, :, :, ll] = ys_opt
             self.p_samples_all[:,:,:,ll] = np.array(p_sample_list)
 
-            self.update_results(us_opt, J_opt, [], econ_rew, penalties, ll)
-        
+            self.update_results(us_opt, J_opt, [], econ_rew, penalties, ll, solver_time, exit_message)
+            u_initial_guess = np.concatenate([us_opt[:, 1:], us_opt[:, -1][:, None]], axis=1)
+
         # Save the open-loop predictions to file after all timesteps
         self.save_open_loop_predictions()
 
