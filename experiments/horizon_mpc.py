@@ -36,7 +36,7 @@ if __name__ == "__main__":
     dt = env_params["dt"]
     p = get_parameters()
 
-    Pred_H = [1, 2, 3, 4, 5, 6]
+    Pred_H = [1, 2, 3, 4, 5, 6, 7, 8]
     seed = 666
 
     col_names = [

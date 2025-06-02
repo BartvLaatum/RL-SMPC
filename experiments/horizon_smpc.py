@@ -25,7 +25,7 @@ def main(args):
         "J", "econ_rewards", "penalties", "rewards", "solver_times", "solver_success", "run"
     ]
 
-    H = [1, 2, 3, 4, 5, 6]
+    H = [1, 2, 3, 4, 5, 6, 7, 8]
 
     # run the experiment
     print(f"Running experiment for delta = {args.uncertainty_value}")
