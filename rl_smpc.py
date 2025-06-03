@@ -123,7 +123,8 @@ class RLSMPC(SMPC):
 
         # Creating casadi version of the actor
         actor_casadi_model = l4c.L4CasADi(actor_fn(self.model.actor.latent_pi, self.model.actor.mu), device="cpu", name=f"actor_{run}")
-        obs_sym = ca.MX.sym("obs_sym", 60, 1)
+        obs_shape = self.eval_env.observation_space.shape
+        obs_sym = ca.MX.sym("obs_sym", obs_shape[0], 1)
         action_out = actor_casadi_model(obs_sym.T)
         self.actor_function = ca.Function(
             "action",
