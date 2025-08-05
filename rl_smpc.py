@@ -55,7 +55,6 @@ class RLSMPC(SMPC):
 
     The controller supports both zero-order and first-order approximation schemes:
     - Zero-order: Direct perturbation of nominal RL control inputs
-    - First-order: Uses gradient information from the RL policy for refined corrections
 
     Attributes:
         eval_env (LettuceGreenhouse): Unnormalized environment for evaluation
@@ -73,41 +72,6 @@ class RLSMPC(SMPC):
         actor_function (casadi.Function): CasADi function for RL policy evaluation
         coef_size (int): Size of Taylor expansion coefficients
 
-    Methods:
-        init_l4casadi(run) -> None:
-            Initialize CasADi neural network functions for RL policy and value function.
-            
-        h(x, u, d, timestep) -> casadi.MX:
-            Observation function that constructs the full observation vector.
-            
-        unroll_actor(p_i_samples, horizon, freeze) -> dict:
-            Unroll the RL policy over the environment for scenario generation.
-            
-        solve_ocp(x0, u0, ds, timestep, theta_init, xk_samples, terminal_xs, 
-                 uk_samples, p_samples, taylor_coefficients) -> tuple:
-            Solve the optimal control problem with scenario-based constraints.
-            
-        define_zero_order_snlp(p) -> None:
-            Define the zero-order stochastic nonlinear programming problem.
-            
-        compute_control_input(xs, ll, us, os_y, os_u, theta, jac_y_full, 
-                            jac_input_full, u_prev) -> casadi.MX:
-            Compute control input using first-order Taylor expansion (first-order mode).
-
-    Example:
-        >>> env_params = load_env_params("LettuceGreenhouse")
-        >>> mpc_params = load_mpc_params("LettuceGreenhouse")
-        >>> rl_env_params = load_rl_params("LettuceGreenhouse", "sac")
-        >>> rl_mpc = RLSMPC(env_params, mpc_params, rl_env_params, "sac",
-        ...                 "env_path.pkl", "model.zip", "vf.zip", run=0)
-        >>> rl_mpc.define_zero_order_snlp(model_parameters)
-
-    Notes:
-        - Inherits from SMPC class for base stochastic MPC functionality
-        - Uses L4CasADi for efficient neural network integration with CasADi
-        - Supports both PPO and SAC algorithms
-        - Implements scenario-based uncertainty handling
-        - Provides flexible terminal cost and constraint options
     """
     def __init__(
             self,
