@@ -1,7 +1,7 @@
 import os
 import argparse
 from time import time
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Tuple
 
 from tqdm import tqdm
 import numpy as np
@@ -23,31 +23,45 @@ from common.utils import (
 
 class MPC:
     """
-    A class to represent a Model Predictive Controller (MPC) for nonlinear systems.
+    A Model Predictive Controller (MPC) for nonlinear greenhouse systems using CasADi.
 
-    The MPC class utilizes CasADi's Opti stack to define and solve an optimization problem
-    that minimizes a cost function while satisfying system dynamics and constraints over a 
-    specified prediction horizon.
+    This class implements a Model Predictive Controller for greenhouse
+    climate control, using CasADi's Opti stack to formulate and solve nonlinear
+    linear programs (NLP). The controller manages CO2 supply, ventilation, and heating
+    to optimize crop growth while maintaining environmental constraints.
+
+    The MPC formulation includes:
+    - Economic objective function with crop growth rewards and control costs
+    - Soft constraints via slack variables on CO2 concentration, temperature, and humidity
+    - Hard constraints on control inputs and their rates of change
+    - System dynamics constraints based on greenhouse physics
 
     Attributes:
-        opti (casadi.Opti): The optimization problem instance.
-        nu (int): Number of control inputs.
-        nx (int): Number of state variables.
-        ny (int): Number of output variables.
-        Np (int): Prediction horizon length.
-        x_initial (np.ndarray): Initial state of the system.
-        u_initial (np.ndarray): Initial control input.
-        lb_pen_w (np.ndarray): Lower bounds for penalty weights.
-        ub_pen_w (np.ndarray): Upper bounds for penalty weights.
-        du_max (float): Maximum allowable change in control input.
-        nlp_opts (dict): Options for the IPOPT solver.
-
-    Methods:
-        define_nlp(p: Dict[str, Any]) -> None:
-            Defines the nonlinear programming (NLP) problem, including decision variables,
-            parameters, constraints, and the cost function.
-            Defines a callable function `MPC_func` that can be used to solve the optimization problem.
-
+        nx (int): Number of state variables (4: dry mass, CO2, temperature, vapor pressure)
+        nu (int): Number of control inputs (3: CO2 supply, ventilation, heating)
+        ny (int): Number of output variables (4: dry mass, CO2, temperature, humidity)
+        nd (int): Number of disturbance variables (weather conditions)
+        dt (float): Time step for discretization (seconds)
+        nDays (int): Simulation duration in days
+        Np (int): Prediction horizon length
+        L (int): Total simulation time in seconds
+        start_day (int): Starting day for weather data
+        t (np.ndarray): Time vector for the simulation
+        N (int): Total number of time steps
+        x_initial (List[float]): Initial state values
+        u_initial (List[float]): Initial control input values
+        lb_pen_w (np.ndarray): Lower bounds for penalty weights
+        ub_pen_w (np.ndarray): Upper bounds for penalty weights
+        Ns (int): Number of scenarios for robust MPC
+        uncertainty_value (float): Parameter uncertainty level
+        constraints (Dict[str, Any]): System constraints dictionary
+        nlp_opts (Dict[str, Any]): IPOPT solver options
+        x_min, x_max (np.ndarray): State bounds
+        y_min, y_max (np.ndarray): Output bounds
+        u_min, u_max (np.ndarray): Control input bounds
+        du_max (np.ndarray): Maximum control input rate of change
+        F, g (callable): System dynamics and output functions
+        opti (casadi.Opti): Optimization problem instance
     """
     def __init__(
             self,
@@ -97,9 +111,10 @@ class MPC:
         self.F, self.g = define_model(self.dt, self.x_min, self.x_max)
 
     def init_nmpc(self):
-        """Initialize the nonlinear MPC problem.
-        Initialise the constraints, bounds, and the optimization problem.
         """
+        Set the boundaries for the optimization problem.
+        """
+        # box constraints for the state variables
         self.x_min = np.array(
             [
                 self.constraints["W_min"],
@@ -118,6 +133,7 @@ class MPC:
             ],
         )
 
+        # soft constraints for the output variables
         self.y_min = np.array(
             [
                 self.constraints["W_min"]*1e3,
@@ -138,17 +154,30 @@ class MPC:
         # control input constraints vector
         self.u_min = np.array([self.constraints["co2_supply_min"], self.constraints["vent_min"], self.constraints["heat_min"]])
         self.u_max = np.array([self.constraints["co2_supply_max"], self.constraints["vent_max"], self.constraints["heat_max"]])
+
         # lower and upper bound change of u 
         self.du_max = np.divide(self.u_max, [10, 10, 10])
-
-        # initial values of the decision variables (control signals) in the optimization
-        self.u0 = np.zeros((self.nu, self.Np)) # this can be moved to the shooting function method.
 
     def solve_ocp(self, x0, u0, ds, u_guess=None, x_guess=None):
         """
         Sets solver values for the optimization problem.
         This function initializes various parameters and values required for the scenario-based
         Model Predictive Control (MPC) solver, including initial states, control inputs, and weather trajectory.
+
+        Args:
+            x0 (np.ndarray): Initial state
+            u0 (np.ndarray): Initial control input
+            ds (np.ndarray): Disturbances
+            u_guess (np.ndarray): Initial guess for control inputs
+            x_guess (np.ndarray): Initial guess for states
+        
+        Returns:
+            xs_opt (np.ndarray): Optimal state trajectory
+            ys_opt (np.ndarray): Optimal output trajectory
+            us (np.ndarray): Optimal control input trajectory
+            J (float): Cost value
+            solver_time (float): Time taken to solve the problem
+            exit_message (str): Exit message from the solver
         """
 
         self.opti.set_value(self.x0, x0)
@@ -182,31 +211,23 @@ class MPC:
         """
         This method sets up the complete nonlinear Model Predictive Control (MPC) problem including
         the cost function, constraints, and bounds. It creates decision variables, defines system
-        dynamics constraints, input constraints, and soft constraints with penalties for the controlled
+        dynamics, input constraints, and soft constraints with penalties for the controlled
         variables.
 
-        Parameters
-        ----------
-        p : np.ndarray
-            Array containing model parameters and settings
+        Args:
+            p (np.ndarray): Array containing model parameters and settings
 
         The method sets up:
         - Decision variables (states, inputs, outputs, slack variables)
-        - System dynamics constraints
+        - System dynamics
         - Input magnitude and rate constraints  
-        - Soft constraints with penalties for:
+        - Soft constraints via slack variables for:
             - CO2 concentration (lower/upper bounds)
             - Temperature (lower/upper bounds)
             - Humidity (lower/upper bounds)
-        - Economic objective function with penalties
+        - Economic objective function with penalties for violating the soft constraints 
 
         The optimization problem is configured to use IPOPT solver with specified options.
-
-        Notes
-        -----
-        - Uses CasADi's Opti stack for problem formulation
-        - Implements both hard constraints (on inputs) and soft constraints (on outputs)
-        - Economic objective includes both rewards and penalties
         """
         # Create an Opti instance
         self.opti = ca.Opti()
@@ -230,28 +251,30 @@ class MPC:
         for ll in range(self.Np):
             self.opti.subject_to(self.xs[:, ll+1] == self.F(self.xs[:, ll], self.us[:, ll], self.ds[:, ll], p))
             self.opti.subject_to(self.ys[:, ll] == self.g(self.xs[:, ll+1]))
-            self.opti.subject_to(self.u_min <= (self.us[:,ll] <= self.u_max))                     # Input   Contraints
+            # Input constraints
+            self.opti.subject_to(self.u_min <= (self.us[:,ll] <= self.u_max))
 
-            # self.set_slack_variables(ll, p)
+            # Soft constraints via slack variables
             self.opti.subject_to(P[:, ll] >= 0)
             self.opti.subject_to(P[0, ll] >= self.lb_pen_w[0,0] * (self.y_min[1] - self.ys[1, ll]))
             self.opti.subject_to(P[1, ll] >= self.ub_pen_w[0,0] * (self.ys[1, ll] - self.y_max[1]))
             self.opti.subject_to(P[2, ll] >= self.lb_pen_w[0,1] * (self.y_min[2] - self.ys[2, ll]))
             self.opti.subject_to(P[3, ll] >= self.ub_pen_w[0,1] * (self.ys[2, ll] - self.y_max[2]))
             self.opti.subject_to(P[4, ll] >= self.lb_pen_w[0,2] * (self.y_min[3] - self.ys[3, ll]))
-            self.opti.subject_to(P[5, ll] >= self.ub_pen_w[0,2] * (self.ys[3, ll] - self.y_max[3]))
+            self.opti.subject_to(P[5, ll] >= self.ub_pen_w[0,2] * (self.ys[3, ll] - (self.y_max[3] - 2.0)))
 
-            # COST FUNCTION WITH PENALTIES
+            # Cost function with penalties
             delta_dw = self.xs[0, ll+1] - self.xs[0, ll]
             J -= compute_economic_reward(delta_dw, p, self.dt, self.us[:,ll])
             J += (P[0, ll]+ P[1, ll]+P[2, ll]+P[3, ll]+P[4, ll]+P[5, ll])
 
             if ll < self.Np-1:
-                self.opti.subject_to(-self.du_max<=(self.us[:,ll+1] - self.us[:,ll]<=self.du_max))     # Change in input Constraint
+                # Change in input constraints
+                self.opti.subject_to(-self.du_max<=(self.us[:,ll+1] - self.us[:,ll]<=self.du_max))
 
-        # Constraints on intial state and input
-        self.opti.subject_to(-self.du_max <= (self.us[:,0] - self.init_u <= self.du_max))   # Initial change in input Constraint
-        self.opti.subject_to(self.xs[:,0] == self.x0)     # Initial Condition Constraint
+        # Constraints on initial state and input 
+        self.opti.subject_to(-self.du_max <= (self.us[:,0] - self.init_u <= self.du_max))
+        self.opti.subject_to(self.xs[:,0] == self.x0)
         self.opti.minimize(J)
 
         self.opti.solver('ipopt', self.nlp_opts)
@@ -261,6 +284,14 @@ class MPC:
         Compute the first initial guess for the optimization problem.
         This function sets the initial guess for the control inputs and states in the optimization problem.
         It is used to provide a starting point for the optimization solver.
+        
+        Args:
+            d (np.ndarray): Disturbances
+            p (np.ndarray): Model parameters
+
+        Returns:
+            u_initial_guess (np.ndarray): Initial guess for control inputs
+            x_initial_guess (np.ndarray): Initial guess for states
         """
         u_initial_guess = np.ones((self.nu, self.Np)) * np.array(self.u_initial).reshape(self.nu, 1)
         x_initial_guess = np.zeros((self.nx, self.Np+1))
@@ -277,6 +308,13 @@ class MPC:
         Function that computes the absolute penalties for violating system constraints.
         System constraints are currently non-dynamical, and based on observation bounds of gym environment.
         We do not look at dry mass bounds, since those are non-existent in real greenhouse.
+
+        Args:
+            y (np.ndarray): Output
+
+        Returns:
+            lowerbound (np.ndarray): Lower bound violation
+            upperbound (np.ndarray): Upper bound violation
         """
         lowerbound = self.y_min[1:] - y[1:]
         lowerbound[lowerbound < 0] = 0
@@ -286,39 +324,56 @@ class MPC:
         return lowerbound, upperbound
 
     def compute_penalties(self, y):
+        """
+        Compute the penalties for violating the system constraints.
+
+        Args:
+            y (np.ndarray): Output
+
+        Returns:
+            penalties (float): Penalties for violating the system constraints
+        """
         lowerbound, upperbound = self.constraint_violation(y)
         penalties = np.dot(self.lb_pen_w, lowerbound) + np.dot(self.ub_pen_w, upperbound)
         return np.sum(penalties)
 
 
 class Experiment:
-    """Experiment manager to test the closed loop performance of MPC.
+    """
+    Experiment manager for closed-loop MPC simulation and performance evaluation.
+
+    This class manages the complete simulation of a Model Predictive Controller
+    in closed-loop operation, including disturbance handling, parametric uncertainty,
+    and comprehensive result tracking. It performs the receding horizon optimization
+    over the entire simulation period while collecting performance metrics.
+
+    The experiment workflow includes:
+    - Initialization with MPC controller and simulation parameters
+    - Closed-loop simulation with receding horizon optimization
+    - Parametric uncertainty injection for robustness testing
+    - Comprehensive result collection and analysis
+    - Data export in multiple formats (numpy arrays and pandas DataFrames)
 
     Attributes:
-        project_name (str): The name of the project.
-        save_name (str): The name under which results will be saved.
-        mpc (MPC): The MPC controller instance.
-        x (np.ndarray): State trajectory.
-        y (np.ndarray): Output trajectory.
-        u (np.ndarray): Control input trajectory.
-        d (np.ndarray): Disturbances.
-        uopt (np.ndarray): Optimal control inputs.
-        J (np.ndarray): Cost values.
-        dJdu (np.ndarray): Gradient of the cost function.
-        output (list): Optimization output.
-        gradJ (np.ndarray): Gradient of the cost function.
-        H (np.ndarray): Hessian of the cost function.
-        step (int): Current step in the experiment.
-
-    Methods:
-        solve_nmpc(p: Dict[str, Any]) -> None:
-            Solve the nonlinear MPC problem.
-
-        update_results(us_opt: np.ndarray, Js_opt: float, sol: Dict[str, Any], step: int) -> None:
-            Update the results after solving the MPC problem for a step.
-
-        save_results() -> None:
-            Save the results of the experiment to a CSV file.
+        project_name (str): Name of the project for result organization
+        save_name (str): Filename for saving experiment results
+        mpc (MPC): The MPC controller instance
+        uncertainty_value (float): Level of parametric uncertainty for robustness testing
+        p (np.ndarray): Model parameters
+        rng (np.random.Generator): Random number generator for uncertainty
+        x (np.ndarray): State trajectory over simulation period (nx, N+1)
+        y (np.ndarray): Output trajectory over simulation period (ny, N+1)
+        u (np.ndarray): Control input trajectory (nu, N+1)
+        d (np.ndarray): Disturbance trajectory (weather data)
+        uopt (np.ndarray): Optimal control sequences from MPC (nu, Np, N+1)
+        J (np.ndarray): Cost values at each time step (1, N)
+        dJdu (np.ndarray): Cost gradients (nu, Np, N)
+        output (list): Optimization solver outputs
+        penalties (np.ndarray): Constraint violation penalties (1, N)
+        econ_rewards (np.ndarray): Economic rewards (1, N)
+        rewards (np.ndarray): Net rewards (economic - penalties) (1, N)
+        solver_times (np.ndarray): Solver computation times (1, N)
+        exit_message (np.ndarray): Solver exit status codes (1, N)
     """
     def __init__(
         self,
@@ -327,8 +382,8 @@ class Experiment:
         project_name: str,
         weather_filename: str,
         uncertainty_value: float,
-        p,
-        rng,
+        p: np.ndarray,
+        rng: np.random.Generator,
     ) -> None:
 
         self.project_name = project_name
@@ -352,6 +407,7 @@ class Experiment:
             self.mpc.nd
         )
 
+        # Initialize the results arrays
         self.uopt = np.zeros((mpc.nu, mpc.Np, mpc.N+1))
         self.J = np.zeros((1, mpc.N))
         self.dJdu = np.zeros((mpc.nu*mpc.Np, mpc.N))
@@ -387,31 +443,34 @@ class Experiment:
 
 
     def solve_nmpc(self) -> None:
-        """Solve the nonlinear MPC problem.
+        """
+        Execute the complete closed-loop MPC simulation.
 
-        Args:
-            p (Dict[str, Any]): the model parameters
+        This method performs the receding horizon optimization over the entire
+        simulation period. At each time step, it:
+        1. Generates initial guesses for states and controls
+        2. Solves the MPC optimization problem
+        3. Applies the first control input to the system
+        4. Simulates the system with parametric uncertainty
+        5. Updates all performance metrics and results
 
-        Returns:
-            np.ndarray: the optimal control inputs
-            float: the cost value
-            np.ndarray: the constraints
-            Dict[str, Any]: the optimization output
-            np.ndarray: the control input changes
-            np.ndarray: the gradient of the cost function
-            np.ndarray: the hessian of the cost function
+        The simulation implements a standard receding horizon approach where
+        the optimization window moves forward one step at a time, and the
+        optimal control sequence is updated based on the current state.
         """
         # Set the initial guess for input and state
-        # u_initial_guess, x_initial_guess = self.mpc.first_initial_guess(self.d[:, :self.mpc.Np], self.p)
         u_initial_guess = np.ones((self.mpc.nu, self.mpc.Np)) * np.array(self.mpc.u_initial).reshape(self.mpc.nu, 1)
-        
+
+        # Solve the MPC optimization problem for each time step
         for ll in tqdm(range(self.mpc.N)):
+            # Generate the initial guess for the states
             x_initial_guess = self.initial_guess_xs(
                 self.x[:, ll],
                 u_initial_guess,
                 self.d[:, ll:ll+self.mpc.Np]
             )
 
+            # Solve the MPC optimization problem
             xs_opt, ys_opt, us_opt, J_opt, solver_time, exit_message = self.mpc.solve_ocp(
                 self.x[:, ll],
                 self.u[:, ll],
@@ -420,29 +479,49 @@ class Experiment:
                 x_guess=x_initial_guess
             )
 
+            # Update the control input
             self.u[:, ll+1] = us_opt[:, 0]
 
+            # Inject parametric uncertainty
             params = parametric_uncertainty(self.p, self.uncertainty_value, self.rng)
 
+            # Simulate the system with parametric uncertainty
             self.x[:, ll+1] = self.mpc.F(self.x[:, ll], self.u[:, ll+1], self.d[:, ll], params).toarray().ravel()
             self.y[:, ll+1] = self.mpc.g(self.x[:, ll+1]).toarray().ravel()
 
+            # Compute the economic reward and penalties
             delta_dw = self.x[0, ll+1] - self.x[0, ll]
             econ_rew = compute_economic_reward(delta_dw, get_parameters(), self.mpc.dt, self.u[:, ll+1])
             penalties = self.mpc.compute_penalties(self.y[:, ll+1])
 
+            # Update the results
             self.update_results(us_opt, J_opt, [], econ_rew, penalties, ll, solver_time, exit_message=exit_message)
 
+            # Update the initial guess for the next time step
             u_initial_guess = np.concatenate([us_opt[:, 1:], us_opt[:, -1][:, None]], axis=1)
-            # x_initial_guess = np.concatenate([self.x[:, ll+1].reshape(self.mpc.nx, 1), xs_opt[:, 2:],  xs_opt[:, -1][:, None]], axis=1)
 
     def update_results(self, us_opt, Js_opt, sol, eco_rew, penalties, step, solver_time, exit_message=None):
         """
+        Update experiment results with current optimization outcomes.
+
+        This method stores the results from the current MPC optimization step,
+        including optimal controls, cost values, economic rewards, penalties,
+        solver performance metrics, and exit status.
+
         Args:
-            uopt (_type_): _description_
-            J (_type_): _description_
-            output (_type_): _description_
-            step (_type_): _description_
+            us_opt (np.ndarray): Optimal control sequence from MPC
+            Js_opt (float): Optimal cost value
+            sol (list): Solver output information (currently unused)
+            eco_rew (float): Economic reward for current step
+            penalties (float): Constraint violation penalties
+            step (int): Current simulation time step
+            solver_time (float): Time taken by the optimization solver
+            exit_message (str, optional): Solver exit status message
+
+        Notes:
+            - Converts solver exit messages to binary success/failure codes
+            - Stores all trajectories and metrics for post-processing
+            - Calculates net rewards as economic rewards minus penalties
         """
         if exit_message == "Solve_Succeeded" or exit_message == "Solved_To_Acceptable_Level":
             exit_message = 0
@@ -460,13 +539,24 @@ class Experiment:
 
     def get_results(self, run):
         """
-        Returns an array with the closed-loop trajectories of the simulation run.
-        Adds the run ID to the last column of the array.
-        Additionally saves performance metrics such as cost, rewards, and penalties.
+        Export results as numpy array with all trajectories and performance metrics.
+
+        This method organizes all simulation data into a structured numpy array
+        with time series data for states, outputs, inputs, disturbances, and
+        performance metrics. The data is formatted for easy analysis and plotting.
+
         Args:
-            run (int): The run ID for the simulation.
+            run (int): Run identifier for the simulation experiment
+
         Returns:
-            np.ndarray: A 2D array containing the closed-loop trajectories and performance metrics.
+            np.ndarray: 2D array with shape (N, n_columns) containing:
+                - Time vector (days)
+                - State trajectories (nx columns)
+                - Output trajectories (ny columns) 
+                - Input trajectories (nu columns)
+                - Disturbance trajectories (nd columns)
+                - Performance metrics (cost, rewards, penalties, solver times)
+                - Run identifier
         """
 
         # Transform weather variables to the right units 
@@ -509,13 +599,29 @@ class Experiment:
 
     def retrieve_results(self, run=0):
         """
-        Creates a pandas dataframe with the closed-loop trajectories of the simulation run.
-        Adds the run ID to the last column of the dataframe.
-        Additionally saves performance metrics such as cost, rewards, and penalties.
+        Export results as pandas DataFrame with labeled columns.
+
+        This method creates a structured pandas DataFrame with all simulation
+        data organized in columns with descriptive names. This format is ideal
+        for data analysis, plotting, and statistical evaluation.
+
         Args:
-            run (int): The run ID for the simulation.
+            run (int, optional): Run identifier for the simulation experiment. Defaults to 0.
+
         Returns:
-            pd.DataFrame: A dataframe containing the closed-loop trajectories and performance metrics.
+            pd.DataFrame: DataFrame with columns for:
+                - time: Simulation time in days
+                - x_0, x_1, ...: State variables
+                - y_0, y_1, ...: Output variables  
+                - u_0, u_1, ...: Control inputs
+                - d_0, d_1, ...: Disturbance variables
+                - J: Cost values
+                - econ_rewards: Economic rewards
+                - penalties: Constraint violation penalties
+                - rewards: Net rewards (economic - penalties)
+                - solver_times: Optimization solver computation times
+                - solver_success: Binary solver success indicators
+                - run: Run identifier
         """
         data = {}
         # transform the weather variables to the right units
@@ -547,9 +653,15 @@ class Experiment:
 
     def save_results(self, save_path):
         """
-        Saves the results of a single run experiment into a CSV file.
+        Save experiment results to CSV file.
+
+        This method exports all simulation results to a CSV file for
+        permanent storage and sharing. The CSV format allows easy
+        import into other analysis tools and programming languages.
+
         Args:
-            save_path (str): The path where the results will be saved.
+            save_path (str): Directory path where the CSV file will be saved.
+                           The filename is determined by self.save_name.
         """
         df = self.retrieve_results()
         df.to_csv(f"{save_path}/{self.save_name}", index=False)
