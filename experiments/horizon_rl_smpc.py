@@ -1,23 +1,3 @@
-"""
-This script performs horizon analysis experiments for Reinforcement Learning with
-Stochastic Model Predictive Control (RL-SMPC) on greenhouse systems. It evaluates the 
-performance of RL-SMPC across different prediction horizons to understand the trade-off 
-between computational complexity and control performance.
-
-Key Features:
-- Evaluates RL-SMPC performance across 8 different prediction horizons
-- Runs 10 Monte Carlo simulations per horizon for statistical significance
-- Uses parallel processing to accelerate computation
-- Collects comprehensive performance metrics
-- Saves results in structured CSV format
-
-Usage:
-    python horizon_rl_smpc.py --project uncertainty-comparison --mode stochastic 
-                              --uncertainty_value 0.1 --save_name horizon_analysis
-
-Author: Bart van Laatum
-"""
-
 import os
 from os.path import join
 import argparse

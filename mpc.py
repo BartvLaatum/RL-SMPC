@@ -20,7 +20,6 @@ from common.utils import (
     vaporDens2rh
 )
 
-
 class MPC:
     """
     A Model Predictive Controller (MPC) for nonlinear greenhouse systems using CasADi.
@@ -482,10 +481,8 @@ class Experiment:
             # Update the control input
             self.u[:, ll+1] = us_opt[:, 0]
 
-            # Inject parametric uncertainty
-            params = parametric_uncertainty(self.p, self.uncertainty_value, self.rng)
-
             # Simulate the system with parametric uncertainty
+            params = parametric_uncertainty(self.p, self.uncertainty_value, self.rng)
             self.x[:, ll+1] = self.mpc.F(self.x[:, ll], self.u[:, ll+1], self.d[:, ll], params).toarray().ravel()
             self.y[:, ll+1] = self.mpc.g(self.x[:, ll+1]).toarray().ravel()
 
