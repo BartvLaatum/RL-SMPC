@@ -150,7 +150,7 @@ python visualisations/plot_state_trajectory.py --project SMPC --model_name brisk
 **Example output:**
 
 <p align="center">
-  <img src="images/examples/closed_loop_trajectories-daylight-1H.svg" alt="State Trajectory Example" width="500"/>
+  <img src="images/examples/closed_loop_trajectories-daylight-1H.svg" alt="State Trajectory Example" width="700"/>
 </p>
 
 ---
@@ -167,7 +167,7 @@ python visualisations/OL_solution.py --project SMPC --model_name frosty-rain-50 
 **Example output:**
 
 <p align="center">
-  <img src="images/examples/SMPC-OL-3H-20Ns.svg" alt="Open-Loop Solution Example" width="500"/>
+  <img src="images/examples/SMPC-OL-3H-20Ns.svg" alt="Open-Loop Solution Example" width="700"/>
 </p>
 
 ---
@@ -184,7 +184,7 @@ python visualisations/uncertainty_heatmap.py
 **Example output:**
 
 <p align="center">
-  <img src="images/examples/heatmap-rlsmpc-vs-rl.svg" alt="Uncertainty Heatmap Example" width="500"/>
+  <img src="images/examples/heatmap-rlsmpc-vs-rl.svg" alt="Uncertainty Heatmap Example" width="300"/>
 </p>
 
 ---
