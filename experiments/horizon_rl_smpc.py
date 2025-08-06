@@ -15,13 +15,13 @@ N_SIMS = 10
 
 def main(args):
     """
-    Execute the horizon analysis experiment for RL-SMPC.
+    Execute the experiment varying prediction horizons for RL-SMPC.
 
     This function orchestrates the complete horizon analysis experiment, including:
     - Loading experiment parameters and model configurations
     - Setting up parallel processing for efficient execution
     - Running experiments across multiple prediction horizons
-    - Collecting and saving comprehensive results
+    - Collecting and saving results
 
     Args:
         args: Command line arguments containing experiment configuration
@@ -42,7 +42,6 @@ def main(args):
     H = [1, 2, 3, 4, 5, 6, 7, 8]
 
     # Load experiment parameters
-    print(f"Running experiment for delta = {args.uncertainty_value}")
     (env_params, mpc_params, rl_env_params, env_path, rl_model_path, vf_path) = \
         load_experiment_parameters(
             args.project, 
@@ -53,6 +52,7 @@ def main(args):
             args.uncertainty_value)
 
     # Run experiments for each prediction horizon
+    print(f"Running experiment for delta = {args.uncertainty_value}")
     for h in H:
         results = Results(col_names)
         print(f"Running for prediction horizon {h} hours")
@@ -141,17 +141,17 @@ def run_experiment(
         rl_feedback=args.rl_feedback,
         Ns=Ns
     )
-    
+
     # Define optimization problem
     rl_mpc.define_zero_order_snlp(p)
-    
+
     # Create experiment with seeded random number generator
     exp_rng = np.random.default_rng(666 + run)
     exp = Experiment(rl_mpc, save_name, args.project, args.weather_filename, uncertainty_value, p, exp_rng)
-    
+
     # Execute simulation
     exp.solve_nsmpc("zero")
-    
+
     return exp.get_results(run)
 
 if __name__ == "__main__":
@@ -160,8 +160,10 @@ if __name__ == "__main__":
     os.environ["OMP_NUM_THREADS"] = "1"
 
     # Parse command line arguments
-    parser = argparse.ArgumentParser(description="Horizon analysis experiment for RL-SMPC")
-    parser.add_argument("--project", type=str, default="uncertainty-comparison",
+    parser = argparse.ArgumentParser(
+        description="Closed-loop simulation experiment with varying prediction horizon for RL-SMPC"
+    )
+    parser.add_argument("--project", type=str, default="SMPC",
                        help="Project name for result organization")
     parser.add_argument("--env_id", type=str, default="LettuceGreenhouse",
                        help="Environment identifier")
@@ -174,7 +176,7 @@ if __name__ == "__main__":
     parser.add_argument("--algorithm", type=str, default="sac",
                        help="RL algorithm (sac or ppo)")
     parser.add_argument("--mode", type=str, choices=['deterministic', 'stochastic'], required=True,
-                       help="Simulation mode")
+                       help="Mode for parametric uncertainty")
     parser.add_argument("--uncertainty_value", type=float, required=True,
                        help="Parametric uncertainty level")
     parser.add_argument("--use_trained_vf", action="store_true",
