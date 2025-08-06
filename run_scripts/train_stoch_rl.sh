@@ -4,7 +4,7 @@ echo "PYTHONPATH set to: $PYTHONPATH"
 # Script to train RL agents with different uncertainty values
 
 # Common arguments
-PROJECT="RL-SMPC"
+PROJECT="SMPC"
 ENV_ID="LettuceGreenhouse"
 ALGORITHM="sac"
 N_EVAL_EPISODES=20

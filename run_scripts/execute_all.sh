@@ -24,7 +24,7 @@ for i in "${!UNCERTAINTY_VALUES[@]}"; do
 
     echo "Processing uncertainty value: $UNCERTAINTY_VALUE with model: $MODEL_NAME"
 
-    Evaluate RL agent
+    # Evaluate RL agent
     echo "Evaluate RL agent..."
     python RL/evaluate_rl.py \
         --project $PROJECT \
@@ -34,7 +34,7 @@ for i in "${!UNCERTAINTY_VALUES[@]}"; do
         --mode $MODE \
         --uncertainty_value $UNCERTAINTY_VALUE
 
-    First run value function training
+    # First run value function training
     echo "Training value function..."
     python RL/vf_TR_learning.py \
         --project $PROJECT \
@@ -44,7 +44,8 @@ for i in "${!UNCERTAINTY_VALUES[@]}"; do
         --uncertainty_value $UNCERTAINTY_VALUE \
         --mode $MODE
     
-    Run RL-SMPC for horizons 1H-8H
+    # Run RL-SMPC for horizons 1H-8H
+    echo "Running RL-MPC..."
     python experiments/horizon_rl_smpc.py \
         --project $PROJECT \
         --env_id $ENV_ID \
@@ -58,15 +59,15 @@ for i in "${!UNCERTAINTY_VALUES[@]}"; do
         --rl_feedback
 
     # Run MPC for horizons 1H-8H
-    # echo "Running MPC..."
+    echo "Running MPC..."
     python experiments/horizon_mpc.py \
         --project $PROJECT \
         --env_id $ENV_ID \
-        --save_name warm-start \
+        --save_name mpc \
         --mode $MODE \
         --uncertainty_value $UNCERTAINTY_VALUE
 
-    Run MPC for horizons 1H-8H
+    # Run SMPC for horizons 1H-8H
     echo "Running SMPC..."
     python experiments/horizon_smpc.py \
         --project $PROJECT \

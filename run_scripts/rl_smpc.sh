@@ -10,15 +10,16 @@ MODE="stochastic"
 UNCERTAINTY_VALUE=0.1
 MODEL_NAME="brisk-resonance-24"
 
-python rl_smpc.py \
+# Run RL-SMPC for horizons 1H-8H
+echo "Running RL-MPC..."
+python experiments/horizon_rl_smpc.py \
     --project $PROJECT \
     --env_id $ENV_ID \
     --model_name $MODEL_NAME \
     --algorithm $ALGORITHM \
-    --save_name no-feedback \
+    --save_name no-tightening \
     --mode $MODE \
     --uncertainty_value $UNCERTAINTY_VALUE \
-    --order zero \
+    --use_trained_vf \
     --terminal \
-    --rl_feedback \
-    --use_trained_vf
+    --rl_feedback
