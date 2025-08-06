@@ -7,8 +7,9 @@ import matplotlib.pyplot as plt
 import cmcrameri.cm as cmc
 
 import plot_config
+import re
 
-def create_plot(figure_name, project, data, horizons, mode, variable, models2plot, uncertainty_value=None):
+def create_plot(figure_name, project, data, horizons, mode, variable, models2plot, uncertainty_value=None, linestyles=["-", "--"]):
 
     WIDTH = 87.5 * 0.03937
     HEIGHT = WIDTH * 0.75
@@ -17,8 +18,9 @@ def create_plot(figure_name, project, data, horizons, mode, variable, models2plo
     
     # n_colors = max(len(data.keys()) + len(model_names), 8)  # Ensure at least 8 colors
     colors = cmc.batlowS
-    horizon_nums = [int(h[0]) for h in horizons]
-
+    pattern = re.compile(r"[-+]?\d*\.?\d+")
+    horizon_nums = [float(pattern.search(h).group()) for h in horizons]
+    i = 0
     for key, results in data.items():
         if key not in models2plot:
             continue
@@ -33,7 +35,7 @@ def create_plot(figure_name, project, data, horizons, mode, variable, models2plo
                 std_smpc_final_rewards.append(cumulative_rewards.std())
         if mean_smpc_final_rewards:
             n2plot = len(mean_smpc_final_rewards)
-            ax.plot(horizon_nums[:n2plot], mean_smpc_final_rewards[:n2plot], 'o-', label=key, color=colors(color_counter))
+            ax.plot(horizon_nums[:n2plot], mean_smpc_final_rewards[:n2plot], 'o-', label=key, color=colors(color_counter), linestyle=linestyles[i])
             if mode == "stochastic":
                 ax.fill_between(
                     horizon_nums[:n2plot], 
@@ -41,6 +43,7 @@ def create_plot(figure_name, project, data, horizons, mode, variable, models2plo
                     np.array(mean_smpc_final_rewards[:n2plot]) + np.array(std_smpc_final_rewards[:n2plot]),
                     color=colors(color_counter), alpha=0.2
                 )
+            i += 1
             color_counter += 1
     ax.set_xlabel('Prediction Horizon (H)')
     if variable == 'rewards':
@@ -62,140 +65,112 @@ def create_plot(figure_name, project, data, horizons, mode, variable, models2plo
     plt.savefig(f'{dir_path}{variable}{uncertainty_suffix}.png', 
                 bbox_inches='tight', dpi=300)
     print("Saved figure to: ", f'{dir_path}{variable}{uncertainty_suffix}.png')
-    plt.show()
+    # plt.show()
 
 def load_smpc(
         mode, 
         project,
-        uncertainty_value=None
+        uncertainty_value=None,
+        model_name="brisk-resonance-24",
     ):
 
     data = {
-        "MPC": {},
-        "SMPC": {},
-        "SMPC-update-fx-1e-6": {},
-        "SMPC-update-fx-1e-7": {},
-        "SMPC-update-fx-1e-8": {},
-        "SMPC-LR-Feedback": {},
-        "SMPC-LR-Feedback-update-fx": {},
+        "smpc-2Ns": {},
+        "smpc-8Ns": {},
+        "rl-smpc": {},
+        "rl-smpc-no-tightening": {},
+        "mpc": {},
+        "mpc-warm-start": {},
     }
 
     horizons = ["1H", "2H", "3H", "4H", "5H", "6H"]
     uncertainty_suffix = f"-{uncertainty_value}" if uncertainty_value else ""
 
     for h in horizons:
+        # mpc_path = f"data/{project}/{mode}/mpc/mpc-{h}{uncertainty_suffix}.csv"
+        smpc_path = f"data/{project}/{mode}/smpc/tree-based-multiplicative-{h}{uncertainty_suffix}.csv"
+        smpc_updated_path = f"data/{project}/{mode}/smpc/tree-based-multiplicative-{h}-8Ns{uncertainty_suffix}.csv"
+        rlsmpc_path = f"data/{project}/{mode}/rlsmpc/{model_name}-zero-order-terminal-{h}{uncertainty_suffix}.csv"
+        rlsmpc_updated_path = f"data/{project}/{mode}/rlsmpc/{model_name}-no-tightening-{h}{uncertainty_suffix}.csv"
         mpc_path = f"data/{project}/{mode}/mpc/mpc-{h}{uncertainty_suffix}.csv"
-        smpc_path = f"data/{project}/{mode}/smpc/smpc-noise-correction-{h}-10Ns{uncertainty_suffix}.csv"
-        smpc_updated_path = f"data/{project}/{mode}/smpc/smpc-update-fx-{h}-10Ns{uncertainty_suffix}.csv"
-        smpc_updated2_path = f"data/{project}/{mode}/smpc/smpc-update-fx-1e-7-{h}-10Ns{uncertainty_suffix}.csv"
-        smpc_updated3_path = f"data/{project}/{mode}/smpc/smpc-update-fx-1e-8-{h}-10Ns{uncertainty_suffix}.csv"
-        # smpc_lr_feedback_path = f"data/{project}/{mode}/smpc/lr-feedback-{h}-10Ns{uncertainty_suffix}.csv"
-        smpc_lr_feedback_updated_path = f"data/{project}/{mode}/smpc/lr-feedback-update-fx-{h}-10Ns{uncertainty_suffix}.csv"
+        mpc_warm_path_updated_path = f"data/{project}/{mode}/mpc/warm-start-{h}{uncertainty_suffix}.csv"
 
-        if os.path.exists(mpc_path):
-            if h not in data['MPC']:
-                data['MPC'][h] = {}
-            data['MPC'][h]= pd.read_csv(mpc_path)
 
         if os.path.exists(smpc_path):
-            if h not in data['SMPC']:
-                data['SMPC'][h] = {}
-            data['SMPC'][h]= pd.read_csv(smpc_path)
+            if h not in data['smpc-2Ns']:
+                data['smpc-2Ns'][h] = {}
+            data['smpc-2Ns'][h]= pd.read_csv(smpc_path)
 
         if os.path.exists(smpc_updated_path):
-            if h not in data['SMPC-update-fx-1e-6']:
-                data['SMPC-update-fx-1e-6'][h] = {}
-            data['SMPC-update-fx-1e-6'][h]= pd.read_csv(smpc_updated_path)
+            if h not in data['smpc-8Ns']:
+                data['smpc-8Ns'][h] = {}
+            data['smpc-8Ns'][h]= pd.read_csv(smpc_updated_path)
+            
+        if os.path.exists(rlsmpc_path):
+            if h not in data['rl-smpc']:
+                data['rl-smpc'][h] = {}
+            data['rl-smpc'][h]= pd.read_csv(rlsmpc_path)
 
-        if os.path.exists(smpc_updated2_path):
-            if h not in data['SMPC-update-fx-1e-7']:
-                data['SMPC-update-fx-1e-7'][h] = {}
-            data['SMPC-update-fx-1e-7'][h]= pd.read_csv(smpc_updated2_path)
+        if os.path.exists(rlsmpc_updated_path):
+            if h not in data['rl-smpc-no-tightening']:
+                data['rl-smpc-no-tightening'][h] = {}
+            data['rl-smpc-no-tightening'][h]= pd.read_csv(rlsmpc_updated_path)
 
-        if os.path.exists(smpc_updated3_path):
-            if h not in data['SMPC-update-fx-1e-8']:
-                data['SMPC-update-fx-1e-8'][h] = {}
-            data['SMPC-update-fx-1e-8'][h]= pd.read_csv(smpc_updated3_path)
+        if os.path.exists(mpc_path):
+            if h not in data['mpc']:
+                data['mpc'][h] = {}
+            data['mpc'][h]= pd.read_csv(mpc_path)
 
-
-        # if os.path.exists(smpc_lr_feedback_path):
-        #     if h not in data['SMPC-LR-Feedback']:
-        #         data['SMPC-LR-Feedback'][h] = {}
-        #     data['SMPC-LR-Feedback'][h]= pd.read_csv(smpc_lr_feedback_path)
-
-        if os.path.exists(smpc_lr_feedback_updated_path):
-            if h not in data['SMPC-LR-Feedback-update-fx']:
-                data['SMPC-LR-Feedback-update-fx'][h] = {}
-            data['SMPC-LR-Feedback-update-fx'][h]= pd.read_csv(smpc_lr_feedback_updated_path)
+        if os.path.exists(mpc_warm_path_updated_path):
+            if h not in data['mpc-warm-start']:
+                data['mpc-warm-start'][h] = {}
+            data['mpc-warm-start'][h]= pd.read_csv(mpc_warm_path_updated_path)
 
     return data, horizons
 
-# def load_smpc_lr(
-#         mode, 
-#         project,
-#         uncertainty_value=None
-#     ):
-#     data = {
-#         "smpc-lr-feedback": {},
-#         "smpc-lr-feedback-warm-init": {},
-#     }
+def plot_trajectories(data):
+    fig, ax = plt.subplots(4, 1, figsize=(10, 6), dpi=300)
+    for key, results in data.items():
+        for h in results:
+            if key != "smpc":
+                ax[0].plot(results[h]["y_0"], label=f"{key}")
+                ax[1].plot(results[h]["y_1"], label=f"{key}")
+                ax[2].plot(results[h]["y_2"], label=f"{key}")
+                ax[3].plot(results[h]["y_3"], label=f"{key}")
+            # mean_smpc_final_rewards = cumulative_rewards.mean()
+            # std_smpc_final_rewards = cumulative_rewards.std()
+            # print(f"{key} - {h}: {mean_smpc_final_rewards} +/- {std_smpc_final_rewards}")
+    ax[0].legend()
+    plt.show()
 
-#     horizons = ["1H", "2H", "3H", "4H", "5H", "6H"]
-#     uncertainty_suffix = f"-{uncertainty_value}" if uncertainty_value else ""
+    fig, ax = plt.subplots(3, 1, figsize=(10, 6), dpi=300)
+    for key, results in data.items():
 
-#     for h in horizons:
-#         smpc_warm_init_path = f"data/{project}/{mode}/smpc/lr-feedback-warm-init-{h}-10Ns{uncertainty_suffix}.csv"
-#         smpc_lr_feedback_path = f"data/{project}/{mode}/smpc/lr-feedback-{h}-10Ns{uncertainty_suffix}.csv"
+        for h in results:
+            if key != "smpc":
+                ax[0].plot(results[h]["u_0"], label=f"{key}")
+                ax[1].plot(results[h]["u_1"], label=f"{key}")
+                ax[2].plot(results[h]["u_2"], label=f"{key}")
+    ax[0].legend()
+    plt.show()
 
-#         if os.path.exists(smpc_path):
-#             if h not in data['smpc-lr-feedback']:
-#                 data['smpc-lr-feedback'][h] = {}
-#             data['smpc-lr-feedback'][h]= pd.read_csv(smpc_path)
-#         if os.path.exists(smpc_warm_init_path):
-#             if h not in data['smpc-lr-feedback-warm-init']:
-#                 data['smpc-lr-feedback-warm-init'][h] = {}
-#             data['smpc-lr-feedback-warm-init'][h]= pd.read_csv(smpc_warm_init_path)
-#     return data, horizons
-
-# def load_smpc_and_lr(
-#         mode, 
-#         project,
-#         uncertainty_value=None
-#     ):
-#     data = {
-#         "smpc": {},
-#         "smpc-lr-feedback": {},
-#     }
-
-#     horizons = ["1H", "2H", "3H", "4H", "5H", "6H"]
-#     uncertainty_suffix = f"-{uncertainty_value}" if uncertainty_value else ""
-
-#     for h in horizons:
-#         smpc_path = f"data/{project}/{mode}/smpc/smpc-noise-correction-{h}-10Ns{uncertainty_suffix}.csv"
-#         smpc_warm_init_path = f"data/{project}/{mode}/smpc/lr-feedback-{h}-10Ns{uncertainty_suffix}.csv"
-
-#         if os.path.exists(smpc_path):
-#             if h not in data['smpc']:
-#                 data['smpc'][h] = {}
-#             data['smpc'][h]= pd.read_csv(smpc_path)
-#         if os.path.exists(smpc_warm_init_path):
-#             if h not in data['smpc-lr-feedback']:
-#                 data['smpc-lr-feedback'][h] = {}
-#             data['smpc-lr-feedback'][h]= pd.read_csv(smpc_warm_init_path)
-#     return data, horizons
 
 def main(args):
     data, horizons = load_smpc(args.mode, args.project, args.uncertainty_value)
 
     # models2plot = ["SMPC", "SMPC-update-fx-1e-6", "SMPC-update-fx-1e-7", "SMPC-update-fx-1e-8"]
-    models2plot = ["SMPC-update-fx-1e-6", "SMPC-LR-Feedback-update-fx"]
+    # models2plot = ["smpc", "smpc-no-tightening", "rl-smpc", "rl-smpc-no-tightening"]
+    # models2plot = ["smpc-2Ns", "smpc-8Ns"]
+    models2plot = ["mpc", "mpc-warm-start"]
+    print(data["mpc"]["1H"]["run"])
+    # plot_trajectories(data)
     create_plot(args.figure_name, args.project, data, horizons, args.mode, 'rewards', models2plot, args.uncertainty_value)
     create_plot(args.figure_name, args.project, data, horizons, args.mode, 'econ_rewards', models2plot, args.uncertainty_value)
     create_plot(args.figure_name, args.project, data, horizons, args.mode, 'penalties', models2plot, args.uncertainty_value)
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
-    parser.add_argument('--project', type=str, default='matching-thesis',
+    parser.add_argument('--project', type=str, default='smpc_test',
                         help='Name of the project')
     parser.add_argument('--mode', type=str, 
                         choices=['deterministic', 'stochastic'], required=True)

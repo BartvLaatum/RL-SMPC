@@ -339,9 +339,10 @@ class LettuceGreenhouse(gym.Env):
         return self.obs, self.get_info(self.u)
 
     def sample_obs(self, std=0.5):
-        """agent_state = (y1,y2,y3,y4,u1,u2,u3,k, d1,d2,d3,d4)
         """
-        d = self.get_d()
+        agent_state = (y1,y2,y3,y4,u1,u2,u3,k, d1,d2,d3,d4)
+        """
+        d = self.d[:, self.timestep:self.timestep+self.observation_module.Np].flatten()
 
         random_x = np.zeros(self.nx,)    
         random_u = np.zeros(self.nu,)
@@ -427,37 +428,3 @@ class LettuceGreenhouse(gym.Env):
         self.y_prev         = deepcopy(self.freeze_y_prev)
         self.done           = deepcopy(self.freeze_done)
         self.u              = deepcopy(self.freeze_u)
-
-
-# if __name__ == "__main__":
-#     parser = argparse.ArgumentParser()
-#     parser.add_argument("--project_name", type=str)
-#     parser.add_argument("--env_id", type=str, default="LettuceGreenhouse")
-#     parser.add_argument("--save_name", type=str)
-#     parser.add_argument("--weather_filename", type=str)
-#     args = parser.parse_args()
-
-#     with open(f"configs/envs/{args.env_id}.yml") as f:
-#         env_params = yaml.safe_load(f)
-
-#     with open(f"configs/models/ppo.yml") as f:
-#         rl_env_params = yaml.safe_load(f)
-
-#     env = LettuceGreenhouse(
-#         weather_filename=args.weather_filename,
-#         **env_params, **rl_env_params[args.env_id]
-#     )
-
-#     # Load and test MPC policy with 6hr control interval
-#     mpc_data = pd.read_csv("data/matching-mpc/mpc-6hr.csv")
-#     control_colids = ["u_{0}".format(i) for i in range(env.nu)]
-#     controls = mpc_data[control_colids].values
-
-#     # Test MPC policy
-#     env.reset()
-
-#     for i in range(controls.shape[0]):
-#         obs, rew, terminated, truncated, info = env.step2(controls[i])
-#         print(f"Step {i+1} - Economic reward: {info["econ_rewards"]}")
-#         if env.terminated:
-#             break

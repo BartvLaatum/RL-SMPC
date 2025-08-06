@@ -18,6 +18,7 @@ class BaseObservations(ABC):
         self.low = None
         self.high = None
         self.obs_names = None
+        self.Np = None
 
     @abstractmethod
     def observation_space(self) -> spaces.Box:
@@ -40,6 +41,7 @@ class StandardObservations(BaseObservations):
     def __init__(self,
                 obs_names) -> None:
         self.obs_names = obs_names
+        self.Np = 0
         self.n_obs = len(obs_names)
 
     def observation_space(self) -> spaces.Box:
@@ -61,8 +63,8 @@ class FutureWeatherObservations(BaseObservations):
     def __init__(self,
                 obs_names) -> None:
         self.obs_names = obs_names
-        self.Np = 12
-        self.n_obs = len(obs_names) + self.Np*4 # 4 weather variables for Np time steps
+        self.Np = 13
+        self.n_obs = len(obs_names) + (self.Np-1)*4 # 4 weather variables for Np time steps
 
     def observation_space(self) -> spaces.Box:
         return spaces.Box(low=-1e-4, high=1e4, shape=(self.n_obs,), dtype=np.float32)
@@ -71,4 +73,4 @@ class FutureWeatherObservations(BaseObservations):
         """
         Compute, and retrieve observations from GreenLight and the weather.
         """
-        return np.concatenate([yk, uk, [timestep], d[:, timestep:timestep+self.Np+1].flatten()])
+        return np.concatenate([yk, uk, [timestep], d[:, timestep:timestep+self.Np].flatten()])

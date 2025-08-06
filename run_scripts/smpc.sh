@@ -1,10 +1,22 @@
-PROJECT="solver-success"
-ENV_ID="LettuceGreenhouse" 
+PROJECT="SMPC"
+ENV_ID="LettuceGreenhouse"
+MODE="stochastic" 
 UNCERTAINTY_VALUE=0.1
 
-echo "Running SMPC..."
-python smpc.py \
+# Run MPC for horizons 1H-8H
+echo "Running MPC..."
+python experiments/horizon_mpc.py \
     --project $PROJECT \
     --env_id $ENV_ID \
-    --save_name init-guess-sim-xs \
-    --uncertainty_value $UNCERTAINTY_VALUE \
+    --save_name mpc \
+    --mode $MODE \
+    --uncertainty_value $UNCERTAINTY_VALUE
+
+# Run SMPC for horizons 1H-8H
+echo "Running SMPC..."
+python experiments/horizon_smpc.py \
+    --project $PROJECT \
+    --env_id $ENV_ID \
+    --save_name no-tightening \
+    --mode $MODE \
+    --uncertainty_value $UNCERTAINTY_VALUE

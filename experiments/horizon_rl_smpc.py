@@ -14,22 +14,34 @@ from rl_smpc import create_rl_smpc, load_experiment_parameters, Experiment
 N_SIMS = 10
 
 def main(args):
+    """
+    Execute the experiment varying prediction horizons for RL-SMPC.
+
+    This function orchestrates the complete horizon analysis experiment, including:
+    - Loading experiment parameters and model configurations
+    - Setting up parallel processing for efficient execution
+    - Running experiments across multiple prediction horizons
+    - Collecting and saving results
+
+    Args:
+        args: Command line arguments containing experiment configuration
+    """
     ctx = multiprocessing.get_context("spawn")
 
     save_path = f"data/{args.project}/stochastic/rlsmpc"
     os.makedirs(save_path, exist_ok=True)
 
-
+    # Define column names for results class
     col_names = [
         "time", "x_0", "x_1", "x_2", "x_3", "y_0", "y_1", "y_2", "y_3",
         "u_0", "u_1", "u_2", "d_0", "d_1", "d_2", "d_3", 
         "J", "econ_rewards", "penalties", "rewards", "solver_times", "solver_success", "run"
     ]
 
-    H = [1, 2, 3, 4, 5, 6]
+    # Prediction horizons to evaluate (in hours)
+    H = [1, 2, 3, 4, 5, 6, 7, 8]
 
-    # run the experiment
-    print(f"Running experiment for delta = {args.uncertainty_value}")
+    # Load experiment parameters
     (env_params, mpc_params, rl_env_params, env_path, rl_model_path, vf_path) = \
         load_experiment_parameters(
             args.project, 
@@ -39,12 +51,16 @@ def main(args):
             args.model_name, 
             args.uncertainty_value)
 
+    # Run experiments for each prediction horizon
+    print(f"Running experiment for delta = {args.uncertainty_value}")
     for h in H:
         results = Results(col_names)
         print(f"Running for prediction horizon {h} hours")
         save_name = f"{args.model_name}-{args.save_name}-{h}H-{args.uncertainty_value}.csv"
 
         p = get_parameters()
+        
+        # Create partial function for parallel execution
         run_exp = partial(
             run_experiment, 
             h=h,
@@ -60,10 +76,12 @@ def main(args):
             save_name=save_name, 
         )
 
+        # Execute parallel simulations
         num_processes = 10
         with ctx.Pool(processes=num_processes) as pool:
             data_list = list(tqdm(pool.imap(run_exp, range(N_SIMS)), total=N_SIMS))
 
+        # Collect and save results
         for data in data_list:
             results.update_result(data)
         results.save(join(save_path, save_name))
@@ -83,42 +101,90 @@ def run_experiment(
         save_name,
         Ns=10,
     ):
-    # Add a small delay based on run ID to avoid resource contention
+    """
+    Execute a single RL-SMPC experiment for a specific prediction horizon.
 
+    This function performs a complete closed-loop simulation RL-SMPC for a given prediction horizon,
+    including controller initialization, optimization problem setup, and result collection.
+
+    Args:
+        run (int): Monte Carlo run number (used for seeding)
+        h (int): Prediction horizon in hours
+        uncertainty_value (float): Level of parametric uncertainty
+        env_params (dict): Environment parameters
+        mpc_params (dict): MPC controller parameters
+        rl_env_params (dict): RL environment parameters
+        args: Command line arguments
+        env_path (str): Path to normalized environment
+        rl_model_path (str): Path to trained RL model
+        vf_path (str): Path to trained value function
+        p (np.ndarray): Model parameters
+        save_name (str): Filename for saving results
+        Ns (int, optional): Number of scenarios. Defaults to 10.
+
+    Returns:
+        np.ndarray: Simulation results including trajectories and performance metrics
+    """
+    # Create RL-SMPC controller
     rl_mpc = create_rl_smpc(
         h, 
-        env_params, 
-        mpc_params,
-        rl_env_params,
-        args.algorithm,
-        env_path,
-        rl_model_path,
-        vf_path,
-        run,
-        args.use_trained_vf,
+        env_params=env_params, 
+        mpc_params=mpc_params,
+        rl_env_params=rl_env_params,
+        algorithm=args.algorithm,
+        env_path=env_path,
+        rl_model_path=rl_model_path,
+        vf_path=vf_path,
+        run=run,
+        use_trained_vf=args.use_trained_vf,
+        terminal=args.terminal,
+        rl_feedback=args.rl_feedback,
         Ns=Ns
     )
 
+    # Define optimization problem
     rl_mpc.define_zero_order_snlp(p)
+
+    # Create experiment with seeded random number generator
     exp_rng = np.random.default_rng(666 + run)
     exp = Experiment(rl_mpc, save_name, args.project, args.weather_filename, uncertainty_value, p, exp_rng)
+
+    # Execute simulation
     exp.solve_nsmpc("zero")
+
     return exp.get_results(run)
 
 if __name__ == "__main__":
     # Set the OMP_NUM_THREADS environment variable to limit threads per process
-    # this fixed the optimization runtime..
+    # This fixes optimization runtime issues with parallel processing
     os.environ["OMP_NUM_THREADS"] = "1"
 
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--project", type=str, default="uncertainty-comparison")
-    parser.add_argument("--env_id", type=str, default="LettuceGreenhouse")
-    parser.add_argument("--model_name", type=str, default="thesis-agent")
-    parser.add_argument("--save_name", type=str)
-    parser.add_argument("--weather_filename", default="outdoorWeatherWurGlas2014.csv", type=str)
-    parser.add_argument("--algorithm", type=str, default="sac")
-    parser.add_argument("--mode", type=str, choices=['deterministic', 'stochastic'], required=True)
-    parser.add_argument("--uncertainty_value", type=float, help="List of uncertainty values")
-    parser.add_argument("--use_trained_vf", action="store_true")
+    # Parse command line arguments
+    parser = argparse.ArgumentParser(
+        description="Closed-loop simulation experiment with varying prediction horizon for RL-SMPC"
+    )
+    parser.add_argument("--project", type=str, default="SMPC",
+                       help="Project name for result organization")
+    parser.add_argument("--env_id", type=str, default="LettuceGreenhouse",
+                       help="Environment identifier")
+    parser.add_argument("--model_name", type=str, default="thesis-agent",
+                       help="Name of the trained RL model")
+    parser.add_argument("--save_name", type=str, required=True,
+                       help="Base name for saving results")
+    parser.add_argument("--weather_filename", default="outdoorWeatherWurGlas2014.csv", type=str,
+                       help="Weather data filename")
+    parser.add_argument("--algorithm", type=str, default="sac",
+                       help="RL algorithm (sac or ppo)")
+    parser.add_argument("--mode", type=str, choices=['deterministic', 'stochastic'], required=True,
+                       help="Mode for parametric uncertainty")
+    parser.add_argument("--uncertainty_value", type=float, required=True,
+                       help="Parametric uncertainty level")
+    parser.add_argument("--use_trained_vf", action="store_true",
+                       help="Use trained value function as terminal cost")
+    parser.add_argument("--terminal", action="store_true",
+                       help="Enforce terminal region constraints")
+    parser.add_argument("--rl_feedback", action="store_true",
+                       help="Use RL policy as feedback law")
+    
     args = parser.parse_args()
     main(args)

@@ -1,3 +1,8 @@
+"""
+This script sets global matplotlib plot configurations for consistent figures.
+It adjusts font styles, sizes, axis properties, and other visual settings to ensure all plots
+across the project have a uniform appearance.
+"""
 import matplotlib.pyplot as plt
 
 # Ensure text is converted to paths
@@ -6,11 +11,12 @@ plt.rcParams["text.usetex"] = False    # Use mathtext instead of full LaTeX
 plt.rcParams["mathtext.fontset"] = "dejavuserif"  # Use a more Illustrator-friendly font
 plt.rcParams["font.family"] = "serif"
 
-plt.rcParams["font.size"] = 8  # General font size
-plt.rcParams["axes.labelsize"] = 8  # Axis label size
-plt.rcParams["xtick.labelsize"] = 8  # Tick labels
-plt.rcParams["ytick.labelsize"] = 8
-plt.rcParams["legend.fontsize"] = 8
+plt.rcParams["font.size"] = 7  # General font size
+plt.rcParams["axes.labelsize"] = 7  # Axis label size
+plt.rcParams["xtick.labelsize"] = 7  # Tick labels
+plt.rcParams["ytick.labelsize"] = 7
+plt.rcParams["legend.fontsize"] = 7
+plt.rcParams["figure.titlesize"] = 7  # Title size
 plt.rcParams["font.family"] = "serif"  # Use a journal-friendly font
 
 plt.rcParams["text.usetex"] = False

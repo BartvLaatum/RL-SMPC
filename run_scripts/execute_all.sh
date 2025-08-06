@@ -4,16 +4,18 @@ echo "PYTHONPATH set to: $PYTHONPATH"
 # Script to run MPC and RL-MPC for several optimization horizons
 
 # Common arguments
-PROJECT="SMPC"
+PROJECT="uncertainty-comparison"
 ENV_ID="LettuceGreenhouse" 
 ALGORITHM="sac"
 MODE="stochastic"
-# UNCERTAINTY_VALUES=(0.1)
-# MODEL_NAMES=("dry-serenity-22")
-# UNCERTAINTY_VALUES=(0.025 0.05 0.075 0.125 0.15 0.175 0.2)
-UNCERTAINTY_VALUES=(0.15)
-MODEL_NAMES=("frosty-rain-50")
+UNCERTAINTY_VALUES=(
+   0.025 0.05 0.075 0.1 0.125 0.15 0.175 0.2
+    )
 
+MODEL_NAMES=(
+    "ruby-serenity-54", "pretty-terrain-55", "dutiful-fire-56", "brisk-resonance-24",
+    "solar-haze-57", "hardy-violet-58", "glorious-mountain-59","swift-morning-5"
+)
 
 # Loop through uncertainty values and model names
 for i in "${!UNCERTAINTY_VALUES[@]}"; do
@@ -41,34 +43,36 @@ for i in "${!UNCERTAINTY_VALUES[@]}"; do
         --algorithm $ALGORITHM \
         --uncertainty_value $UNCERTAINTY_VALUE \
         --mode $MODE
-
+    
+    # Run RL-SMPC for horizons 1H-8H
+    echo "Running RL-MPC..."
     python experiments/horizon_rl_smpc.py \
         --project $PROJECT \
         --env_id $ENV_ID \
         --model_name $MODEL_NAME \
         --algorithm $ALGORITHM \
-        --save_name zero-order-terminal \
+        --save_name no-tightening \
         --mode $MODE \
         --uncertainty_value $UNCERTAINTY_VALUE \
         --use_trained_vf \
+        --terminal \
+        --rl_feedback
 
-    # Run MPC for horizons 1H-6H
+    # Run MPC for horizons 1H-8H
     echo "Running MPC..."
     python experiments/horizon_mpc.py \
         --project $PROJECT \
         --env_id $ENV_ID \
-        --save_name warm-start \
+        --save_name mpc \
         --mode $MODE \
         --uncertainty_value $UNCERTAINTY_VALUE
 
-    # Run MPC for horizons 1H-6H
+    # Run SMPC for horizons 1H-8H
     echo "Running SMPC..."
     python experiments/horizon_smpc.py \
         --project $PROJECT \
         --env_id $ENV_ID \
-        --save_name warm-start \
+        --save_name no-tightening \
         --mode $MODE \
         --uncertainty_value $UNCERTAINTY_VALUE
-
-
 done
