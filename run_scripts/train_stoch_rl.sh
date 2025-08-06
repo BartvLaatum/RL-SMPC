@@ -5,7 +5,7 @@ echo "PYTHONPATH set to: $PYTHONPATH"
 
 # Common arguments
 PROJECT="RL-SMPC"
-ENV_ID="LettuceGreenhouseStateNoise"
+ENV_ID="LettuceGreenhouse"
 ALGORITHM="sac"
 N_EVAL_EPISODES=20
 N_EVALS=20
