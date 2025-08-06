@@ -17,6 +17,20 @@ The code in this repository was used for a paper under review at the [Control En
 
 📧 e-mail: bart.vanlaatum@wur.nl
 
+## Installation
+
+This project was developed using Python 3.11 with in an Anaconda environment. It is recommended to create a virtual conda/python environment for this project.
+
+1. Clone the repository:
+```shell
+git clone git@github.com:BartvLaatum/RL-SMPC.git
+```
+
+2. Install the required Python libraries:
+```shell
+pip install -r requirements.txt
+```
+
 ## Project Structure
 
 The project is organized as follows:
@@ -46,21 +60,8 @@ RL-MPC-lettuce/
 - **RL/**: Contains Python scripts to evaluate, train RL models and learn terminal cost functions
 - **Visualisations/**: Scripts for visualizations
 - **weather/**: Contains weather data in csv format
-- *{\*}mpc.py*: Contain the classes that define the various MPC controllers. Addtionally, contain experiments manager classes for results tracking and saving. 
+- ***{\*}mpc.py***: Contains the classes that define the various MPC controllers. Addtionally, contain experiments manager classes for results tracking and saving. 
 
-## Installation
-
-This project was developed using Python 3.11 with in an Anaconda environment. It is recommended to create a virtual conda/python environment for this project.
-
-1. Clone the repository:
-```shell
-git clone git@github.com:BartvLaatum/RL-SMPC.git
-```
-
-2. Install the required Python libraries:
-```shell
-pip install -r requirements.txt
-```
 
 ## Usage
 
