@@ -11,7 +11,7 @@ This repository provides an implementation of the integration between **R**einfo
 
 The code in this repository was used for a paper under review at the [Control Engineering Practice](https://www.sciencedirect.com/journal/control-engineering-practice) journal. A link to a preprint for this article is available below.
 
-📄 Preprint: https://arxiv.org/abs/2410.05336
+📄 Preprint: TODO
 
 ✏ author: Bart van Laatum
 
