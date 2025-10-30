@@ -8,8 +8,9 @@ ENV_ID="LettuceGreenhouse"
 ALGORITHM="sac"
 MODE="stochastic"
 UNCERTAINTY_VALUE=0.1
-# MODEL_NAME="brisk-resonance-24"
-MODEL_NAMES=("iconic-dust-9" "eager-bee-10" "logical-forest-11" "swift-armadillo-12")
+MODEL_NAMES=("brisk-resonance-24")
+# Uncomment to run with all trained models
+# MODEL_NAMES=("brisk-resonance-24" "iconic-dust-9" "eager-bee-10" "logical-forest-11" "swift-armadillo-12")
 
 # Run RL-SMPC for horizons 1H-8H
 for MODEL_NAME in "${MODEL_NAMES[@]}"; do

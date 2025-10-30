@@ -51,12 +51,16 @@ def main(args):
             args.model_name, 
             args.uncertainty_value)
 
+    env_params["lb_pen_w"] = [w*args.penalty_weight_factor for w in env_params["lb_pen_w"]]
+    env_params["ub_pen_w"] = [w*args.penalty_weight_factor for w in env_params["ub_pen_w"]]
+
     # Run experiments for each prediction horizon
     print(f"Running experiment for delta = {args.uncertainty_value}")
     for h in H:
         results = Results(col_names)
         print(f"Running for prediction horizon {h} hours")
-        save_name = f"{args.model_name}-{args.save_name}-{h}H-{args.uncertainty_value}.csv"
+        # save_name = f"{args.model_name}-{args.save_name}-{h}H-{args.uncertainty_value}.csv"
+        save_name = f"{args.model_name}-{args.save_name}-{h}H-{args.uncertainty_value}-{args.Ns}Ns.csv"
 
         p = get_parameters()
         
@@ -73,7 +77,8 @@ def main(args):
             rl_model_path=rl_model_path,
             vf_path=vf_path,
             p=p,
-            save_name=save_name, 
+            save_name=save_name,
+            Ns=args.Ns,
         )
 
         # Execute parallel simulations
@@ -185,6 +190,10 @@ if __name__ == "__main__":
                        help="Enforce terminal region constraints")
     parser.add_argument("--rl_feedback", action="store_true",
                        help="Use RL policy as feedback law")
-    
+    parser.add_argument("--Ns", type=int, required=False, default=10,
+                       help="Number of scenarios for SMPC")
+    parser.add_argument("--penalty_weight_factor", type=float, default=1.0, 
+                        help="Factor to scale the penalty weights for constraint violations")
+
     args = parser.parse_args()
     main(args)

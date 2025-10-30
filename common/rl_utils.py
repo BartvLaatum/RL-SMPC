@@ -13,7 +13,6 @@ from stable_baselines3.common.vec_env import VecEnv, SubprocVecEnv, VecNormalize
 from common.results import Results
 from common.callbacks import SaveVecNormalizeCallback, CustomWandbCallback
 from envs.lettuce_greenhouse import LettuceGreenhouse
-from envs.lettuce_greenhouse_state_noise import LettuceGreenhouseStateNoise
 
 def load_rl_params(env_id: str, algorithms: str) -> Tuple[Dict[str, Any], Dict[str, Any]]:
     """
@@ -70,7 +69,6 @@ def make_env(env_id, rank, seed, env_params, eval_env):
     '''
     envs = {
         "LettuceGreenhouse": LettuceGreenhouse,
-        "LettuceGreenhouseStateNoise": LettuceGreenhouseStateNoise
     }
 
     def _init():
