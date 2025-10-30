@@ -86,6 +86,9 @@ if __name__ == "__main__":
     parser.add_argument("--algorithm", type=str, default="ppo", help="Name of the algorithm (ppo or sac)")
     parser.add_argument("--mode", type=str, choices=['deterministic', 'stochastic'], required=True)
     parser.add_argument("--uncertainty_value", type=float, help="Uncertainty scale value")
+    parser.add_argument("--penalty_weight_factor", type=float, default=1.0, 
+                    help="Factor to scale the penalty weights for constraint violations")
+
     args = parser.parse_args()
 
     assert args.mode in ['deterministic', 'stochastic'], "Mode must be either 'deterministic' or 'stochastic'"
@@ -106,6 +109,8 @@ if __name__ == "__main__":
     hyperparameters, rl_env_params = load_rl_params(args.env_id, args.algorithm)
     env_params["uncertainty_value"] = args.uncertainty_value
     env_params.update(rl_env_params)
+    env_params["lb_pen_w"] = [w*args.penalty_weight_factor for w in env_params["lb_pen_w"]]
+    env_params["ub_pen_w"] = [w*args.penalty_weight_factor for w in env_params["ub_pen_w"]]
     eval_env = load_env(args.env_id, args.model_name, env_params, load_path)
 
     model = ALG[args.algorithm].load(join(load_path + f"models", f"{args.model_name}/best_model.zip"), device="cpu")
