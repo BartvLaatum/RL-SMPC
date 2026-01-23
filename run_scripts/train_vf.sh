@@ -24,4 +24,15 @@ for MODEL_NAME in "${MODEL_NAMES[@]}"; do
         --use_trained_vf \
         --terminal \
         --rl_feedback
+
+    # Evaluate RL agent
+    echo "Evaluating RL agent with named: $MODEL_NAME..."
+    python RL/evaluate_rl.py \
+        --project $PROJECT \
+        --model_name $MODEL_NAME \
+        --env_id $ENV_ID \
+        --algorithm $ALGORITHM \
+        --mode $MODE \
+        --uncertainty_value $UNCERTAINTY_VALUE
+
 done
