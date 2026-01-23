@@ -141,8 +141,8 @@ def runtime_performance_plot_all_samples(fig, ax, data, horizons, model_names, f
     ax.errorbar(
         mean_rl_smpc_final_reward,
         mean_rl_smpc_runtime,
-        xerr=std_rl_smpc_runtime,
-        yerr=std_rl_smpc_final_reward,
+        xerr=std_rl_smpc_final_reward,
+        yerr=std_rl_smpc_runtime,
         fmt='o',
         color=cmaps[1](frac),
         label="RL-SMPC",
