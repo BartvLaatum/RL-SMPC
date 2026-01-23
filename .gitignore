@@ -10,3 +10,6 @@ data/
 *.pyc
 *.ipynb_checkpoints
 *__pycache__*
+mpc_unused.py
+rl_mpc.py
+rl_mpc.sh
