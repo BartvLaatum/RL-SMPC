@@ -1,0 +1,43 @@
+cff-version: 1.2.0
+message: "If you use this work, please cite it as below."
+title: "Stochastic model predictive control with reinforcement learning for greenhouse production systems under parametric uncertainty"
+type: journal-article
+authors:
+  - family-names: "van Laatum"
+    given-names: "Bart"
+  - family-names: "Msaad"
+    given-names: "Salim"
+  - family-names: "van Henten"
+    given-names: "Eldert J."
+  - family-names: "McAllister"
+    given-names: "Robert D."
+  - family-names: "Boersma"
+    given-names: "Sjoerd"
+doi: "10.1016/j.conengprac.2026.106787"
+url: "https://www.sciencedirect.com/science/article/pii/S0967066126000316"
+keywords:
+  - "Stochastic model predictive control"
+  - "reinforcement learning"
+  - "greenhouse production control"
+  - "terminal costs"
+  - "terminal region constraints"
+  - "feedback policies"
+preferred-citation:
+  type: journal-article
+  title: "Stochastic model predictive control with reinforcement learning for greenhouse production systems under parametric uncertainty"
+  authors:
+    - family-names: "van Laatum"
+      given-names: "Bart"
+    - family-names: "Msaad"
+      given-names: "Salim"
+    - family-names: "van Henten"
+      given-names: "Eldert J."
+    - family-names: "McAllister"
+      given-names: "Robert D."
+    - family-names: "Boersma"
+      given-names: "Sjoerd"
+  journal: "Control Engineering Practice"
+  year: 2026
+  volume: 169
+  article-number: 106787
+  doi: "10.1016/j.conengprac.2026.106787"
