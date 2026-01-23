@@ -21,9 +21,6 @@ for MODEL_NAME in "${MODEL_NAMES[@]}"; do
         --save_name no-tightening \
         --mode $MODE \
         --uncertainty_value $UNCERTAINTY_VALUE \
-        --use_trained_vf \
-        --terminal \
-        --rl_feedback
 
     # Evaluate RL agent
     echo "Evaluating RL agent with named: $MODEL_NAME..."
