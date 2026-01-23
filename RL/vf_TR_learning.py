@@ -13,8 +13,7 @@ if __name__ == "__main__":
     parser.add_argument('--algorithm', type=str, help='Name of the RL algorithm to be loaded')
     parser.add_argument('--model_name', type=str, help='Path to the model to be used for generating data points and trajectories')
     parser.add_argument("--mode", type=str, choices=['deterministic', 'stochastic'], required=True)
-    parser.add_argument("--penalty_weight_factor", type=float, default=1.0, 
-                    help="Factor to scale the penalty weights for constraint violations")
+
     parser.add_argument("--uncertainty_value", type=float, help="List of uncertainty scale values")
     args = parser.parse_args()
     # Load model and environment
@@ -38,9 +37,6 @@ if __name__ == "__main__":
     env_params.update(rl_env_params)
     L = env_params["n_days"]*86400
     N = int(L//env_params["dt"])
-
-    env_params["lb_pen_w"] = [w*args.penalty_weight_factor for w in env_params["lb_pen_w"]]
-    env_params["ub_pen_w"] = [w*args.penalty_weight_factor for w in env_params["ub_pen_w"]]
 
     # Create value function
     my_value_function = value_function_TR(

@@ -49,16 +49,13 @@ def main(args):
     env_params = load_env_params(args.env_id)
     mpc_params = load_mpc_params(args.env_id)
 
-    env_params["lb_pen_w"] = [w*args.penalty_weight_factor for w in env_params["lb_pen_w"]]
-    env_params["ub_pen_w"] = [w*args.penalty_weight_factor for w in env_params["ub_pen_w"]]
-
     # Run experiments for each prediction horizon
     for h in H:
         results = Results(col_names)
         print(f"Running for prediction horizon {h} hours")
-        # save_name = f"{args.save_name}-{h}H-{args.uncertainty_value}.csv"
-        save_name = f"{args.save_name}-{h}H-{args.uncertainty_value}-{args.Ns}Ns.csv"
-        # save_name = f"{args.save_name}-{h}H-{args.uncertainty_value}-{args.Ns}Ns-{args.penalty_weight_factor}.csv"
+        save_name = f"{args.save_name}-{h}H-{args.uncertainty_value}.csv"
+        # save_name = f"{args.save_name}-{h}H-{args.uncertainty_value}-{args.Ns}Ns.csv"
+
         p = get_parameters()
         run_exp = partial(
             run_experiment, 
@@ -150,8 +147,6 @@ if __name__ == "__main__":
                        help="Parametric uncertainty level")
     parser.add_argument("--Ns", type=int, required=False, default=10,
                         help="Number of scenarios for SMPC")
-    parser.add_argument("--penalty_weight_factor", type=float, default=1.0, 
-                        help="Factor to scale the penalty weights for constraint violations")
 
     args = parser.parse_args()
     main(args)

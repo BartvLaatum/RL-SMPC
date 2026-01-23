@@ -32,8 +32,6 @@ if __name__ == "__main__":
                         help="Whether to save the trained model")
     parser.add_argument("--save_env", default=True, action=argparse.BooleanOptionalAction,
                         help="Whether to save the environment")
-    parser.add_argument("--penalty_weight_factor", type=float, default=1.0, 
-                        help="Factor to scale the penalty weights for constraint violations")
     parser.add_argument('--training_years', nargs='+', type=str, default=[],
                         help="List of years to train on for weather trajectories (unused)")
     parser.add_argument("--hyperparameter_tuning", default=False, action=argparse.BooleanOptionalAction,
@@ -65,11 +63,6 @@ if __name__ == "__main__":
         env_params["obs_module"] = "FutureWeatherObservations"
         eval_env_params["obs_module"] = "FutureWeatherObservations"
         env_params["start_day"] += 10 # the KNMI files start at 1 January and evaluation data at 10th January.
-
-    env_params["lb_pen_w"] = [w*args.penalty_weight_factor for w in env_params["lb_pen_w"]]
-    env_params["ub_pen_w"] = [w*args.penalty_weight_factor for w in env_params["ub_pen_w"]]
-    eval_env_params["lb_pen_w"] = [w*args.penalty_weight_factor for w in eval_env_params["lb_pen_w"]]
-    eval_env_params["ub_pen_w"] = [w*args.penalty_weight_factor for w in eval_env_params["ub_pen_w"]]
 
     # Create the experiment manager instance
     experiment_manager = RLExperimentManager(
