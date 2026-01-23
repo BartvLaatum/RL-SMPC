@@ -41,6 +41,8 @@ def main(args):
 
     # Prediction horizons to evaluate (in hours)
     H = [1, 2, 3, 4, 5, 6, 7, 8]
+    # H = [1, 2, 3, 4]
+    # H = [1]
 
     # run the experiment
     print(f"Running experiment for delta = {args.uncertainty_value}")
@@ -52,6 +54,8 @@ def main(args):
         results = Results(col_names)
         print(f"Running for prediction horizon {h} hours")
         save_name = f"{args.save_name}-{h}H-{args.uncertainty_value}.csv"
+        # save_name = f"{args.save_name}-{h}H-{args.uncertainty_value}-{args.Ns}Ns.csv"
+
         p = get_parameters()
         run_exp = partial(
             run_experiment, 
@@ -61,7 +65,8 @@ def main(args):
             mpc_params=mpc_params,
             args=args,
             p=p,
-            save_name=save_name, 
+            save_name=save_name,
+            Ns=args.Ns,
         )
 
         # Execute parallel simulations
@@ -111,7 +116,7 @@ def run_experiment(
     save_name = f"{args.save_name}-{h}H-{mpc_params['Ns']}Ns-{args.uncertainty_value}"
     mpc_params["rng"] = smpc_rng
     mpc_params["Np"] = int(h * 3600 / env_params["dt"])
-    mpc_params["Ns"] = 10
+    mpc_params["Ns"] = Ns
 
     p = get_parameters()
     smpc = SMPC(**env_params, **mpc_params)
@@ -140,5 +145,8 @@ if __name__ == "__main__":
                        help="Mode for parametric uncertainty")
     parser.add_argument("--uncertainty_value", type=float, required=True,
                        help="Parametric uncertainty level")
+    parser.add_argument("--Ns", type=int, required=False, default=10,
+                        help="Number of scenarios for SMPC")
+
     args = parser.parse_args()
     main(args)

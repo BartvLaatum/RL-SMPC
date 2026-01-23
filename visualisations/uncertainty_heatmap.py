@@ -54,7 +54,7 @@ def get_mean_reward(csv_file, column='rewards'):
     """
     df = pd.read_csv(csv_file)
     df_grouped = df.groupby('run')
-    return df_grouped['rewards'].sum().mean(), df_grouped['econ_rewards'].sum().mean(), df_grouped['penalties'].sum().mean()
+    return df_grouped['rewards'].sum().mean(), df_grouped['econ_rewards'].sum().mean(), df_grouped['penalties'].sum().mean(), df_grouped['rewards'].sum().std()
 
 def compute_diff_matrices(mpc_results, rlsmpc_results, horizons, uncertainties):
     """
@@ -141,11 +141,11 @@ def main():
                     print(f"Skipping file {filepath}: could not extract parameters.")
                 continue
             try:
-                mean_reward, mean_epi, mean_penalty = get_mean_reward(filepath)
+                mean_reward, mean_epi, mean_penalty, std_mean_reward = get_mean_reward(filepath)
             except Exception as e:
                 print(f"Error reading {filepath}: {e}")
                 continue
-
+            print(h, delta, std_mean_reward)
             result_dict[(h, delta)] = mean_reward
             # Uncomment the following lines to process additional metrics:
             # result_dict_epi[(h, delta)] = mean_epi
@@ -179,7 +179,7 @@ def main():
         delta = uncertainties[i]
         filepath = os.path.join(rl_dir, f"{model}.csv")
         try:
-            mean_reward, mean_epi, mean_penalty = get_mean_reward(filepath)
+            mean_reward, mean_epi, mean_penalty, std_mean_reward = get_mean_reward(filepath)
         except Exception as e:
             print(f"Error reading {filepath}: {e}")
             continue
@@ -246,7 +246,6 @@ def plot_heatmap(data, ax, fig, variable, m):
     cbar.ax.xaxis.set_label_position('top')
     cbar.ax.tick_params(top=True, bottom=False, labeltop=True, labelbottom=False)
     cbar.set_label(f'$\Delta$% Cumulative {variable}')
-    ax.square()
 
     plt.tight_layout()
     return fig, ax

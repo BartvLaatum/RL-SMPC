@@ -57,9 +57,10 @@ def main(args):
         results = Results(col_names)
         print(f"Running for prediction horizon {h} hours")
         save_name = f"{args.model_name}-{args.save_name}-{h}H-{args.uncertainty_value}.csv"
+        # save_name = f"{args.model_name}-{args.save_name}-{h}H-{args.uncertainty_value}-{args.Ns}Ns.csv"
 
         p = get_parameters()
-        
+
         # Create partial function for parallel execution
         run_exp = partial(
             run_experiment, 
@@ -73,7 +74,8 @@ def main(args):
             rl_model_path=rl_model_path,
             vf_path=vf_path,
             p=p,
-            save_name=save_name, 
+            save_name=save_name,
+            Ns=args.Ns,
         )
 
         # Execute parallel simulations
@@ -185,6 +187,8 @@ if __name__ == "__main__":
                        help="Enforce terminal region constraints")
     parser.add_argument("--rl_feedback", action="store_true",
                        help="Use RL policy as feedback law")
-    
+    parser.add_argument("--Ns", type=int, required=False, default=10,
+                       help="Number of scenarios for SMPC")
+
     args = parser.parse_args()
     main(args)

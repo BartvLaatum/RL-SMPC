@@ -8,13 +8,14 @@ ENV_ID="LettuceGreenhouse"
 ALGORITHM="sac"
 MODE="stochastic"
 UNCERTAINTY_VALUE=0.1
-MODEL_NAMES=("brisk-resonance-24")
-# Uncomment to run with all trained models
-# MODEL_NAMES=("brisk-resonance-24" "iconic-dust-9" "eager-bee-10" "logical-forest-11" "swift-armadillo-12")
+MODEL_NAME="brisk-resonance-24"
+
+Ns=(5 15 20)
 
 # Run RL-SMPC for horizons 1H-8H
-for MODEL_NAME in "${MODEL_NAMES[@]}"; do
-    echo "Running RL-MPC for model: $model..."
+echo "Running RL-MPC..."
+for Ns_value in "${Ns[@]}"; do
+    echo "Running with Ns value $Ns_value..."
     python experiments/horizon_rl_smpc.py \
         --project $PROJECT \
         --env_id $ENV_ID \
@@ -25,5 +26,20 @@ for MODEL_NAME in "${MODEL_NAMES[@]}"; do
         --uncertainty_value $UNCERTAINTY_VALUE \
         --use_trained_vf \
         --terminal \
-        --rl_feedback
+        --rl_feedback \
+        --Ns $Ns_value
 done
+
+# Run SMPC for horizons 1H-8H
+echo "Running SMPC..."
+for Ns_value in "${Ns[@]}"; do
+    echo "... with Ns value $Ns_value..."
+    python experiments/horizon_smpc.py \
+        --project $PROJECT \
+        --env_id $ENV_ID \
+        --save_name no-tightening \
+        --mode $MODE \
+        --uncertainty_value $UNCERTAINTY_VALUE \
+        --Ns $Ns_value
+done
+
