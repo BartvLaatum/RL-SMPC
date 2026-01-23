@@ -15,13 +15,18 @@ authors:
     given-names: "Sjoerd"
 doi: "10.1016/j.conengprac.2026.106787"
 url: "https://www.sciencedirect.com/science/article/pii/S0967066126000316"
+identifiers:
+  - type: issn
+    value: "0967-0661"
+journal: "Control Engineering Practice"
+volume: 169
+year: 2026
+month: 4
+article-number: 106787
 keywords:
-  - "Stochastic model predictive control"
+  - "stochastic model predictive control"
   - "reinforcement learning"
-  - "greenhouse production control"
-  - "terminal costs"
-  - "terminal region constraints"
-  - "feedback policies"
+  - "greenhouse production systems"
 preferred-citation:
   type: journal-article
   title: "Stochastic model predictive control with reinforcement learning for greenhouse production systems under parametric uncertainty"
@@ -38,6 +43,11 @@ preferred-citation:
       given-names: "Sjoerd"
   journal: "Control Engineering Practice"
   year: 2026
+  month: 4
   volume: 169
   article-number: 106787
   doi: "10.1016/j.conengprac.2026.106787"
+  url: "https://www.sciencedirect.com/science/article/pii/S0967066126000316"
+  identifiers:
+    - type: issn
+      value: "0967-0661"
