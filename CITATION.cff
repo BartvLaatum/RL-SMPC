@@ -18,17 +18,8 @@ url: "https://www.sciencedirect.com/science/article/pii/S0967066126000316"
 identifiers:
   - type: issn
     value: "0967-0661"
-journal: "Control Engineering Practice"
-volume: 169
-year: 2026
-month: 4
-article-number: 106787
-keywords:
-  - "stochastic model predictive control"
-  - "reinforcement learning"
-  - "greenhouse production systems"
 preferred-citation:
-  type: journal-article
+  type: article
   title: "Stochastic model predictive control with reinforcement learning for greenhouse production systems under parametric uncertainty"
   authors:
     - family-names: "van Laatum"
@@ -45,7 +36,7 @@ preferred-citation:
   year: 2026
   month: 4
   volume: 169
-  article-number: 106787
+  pages: "106787"
   doi: "10.1016/j.conengprac.2026.106787"
   url: "https://www.sciencedirect.com/science/article/pii/S0967066126000316"
   identifiers:
