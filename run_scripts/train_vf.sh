@@ -1,6 +1,7 @@
 #!/bin/bash
 export PYTHONPATH=$(pwd)
 # Script to run value function training for specified trained RL models
+# Additionally, the trained RL agent is evaluated on the evluation environment
 
 # Common arguments
 PROJECT="SMPC"
@@ -18,7 +19,6 @@ for MODEL_NAME in "${MODEL_NAMES[@]}"; do
         --env_id $ENV_ID \
         --model_name $MODEL_NAME \
         --algorithm $ALGORITHM \
-        --save_name no-tightening \
         --mode $MODE \
         --uncertainty_value $UNCERTAINTY_VALUE \
 
