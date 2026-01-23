@@ -3,7 +3,7 @@ cmcrameri==1.9
 gymnasium==1.0.0
 l4casadi==2.0.0
 matplotlib==3.10.5
-numpy==2.3.2
+numpy==1.26.4
 pandas==2.3.1
 PyYAML==6.0.2
 stable_baselines3==2.4.0
