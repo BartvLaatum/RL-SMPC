@@ -194,7 +194,7 @@ This script compares the performance of RL-SMPC, SMPC, MPC, and RL across differ
 
 **Example usage:**
 ```shell
-python visualisations/rl_smpc_performance.py --project SMPC --model_names brisk-resonance-24 --smpc -mpc --zero-order --terminal --mode stochastic --uncertainty_value 0.1 --figure_name all-methods
+python visualisations/rl_smpc_performance.py --project SMPC --model_names brisk-resonance-24 --smpc --mpc --zero-order --terminal --mode stochastic --uncertainty_value 0.1 --figure_name all-methods
 ```
 
 **Example output:**
@@ -253,6 +253,23 @@ python visualisations/uncertainty_heatmap.py
 <p align="center">
   <img src="images/examples/heatmap-rlsmpc-vs-rl.svg" alt="Uncertainty Heatmap Example" width="300"/>
 </p>
+
+---
+### 5. Runtime performance (`visualisations/runtime_performmance.py`)
+
+
+**Example usage:**
+```shell
+python visualisations/runtime_performance.py --project SMPC --model_name brisk-resonance-24 --mode stochastic --figure_name SMPC/stochastic/dissertation/SMPC-runtime --smpc --zero-order --terminal --uncertainty 0.1
+```
+
+**Example output:**
+
+<p align="center">
+  <img src="images/examples/SMPC-runtime.svg" alt="Runtime performance" width="300"/>
+</p>
+
+
 
 ---
 
