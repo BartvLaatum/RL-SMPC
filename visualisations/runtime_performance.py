@@ -12,7 +12,7 @@ import plot_config
 from tabulate import tabulate
 
 
-WIDTH = 90 * 0.0393700787
+WIDTH = 65 * 0.0393700787
 HEIGHT = WIDTH * 0.75
 
 def load_data(
@@ -164,7 +164,7 @@ def runtime_performance_plot_all_samples(fig, ax, data, horizons, model_names, f
     plt.plot(mean_smpc_final_reward, mean_smpc_runtime, color=cmaps[0](frac))
 
 def runtime_performance_plot(data, horizons, model_names):
-    WIDTH = (101.85-18) * 0.0393700787
+    WIDTH = 65 * 0.0393700787
     HEIGHT = WIDTH * 0.75
     color_counter  = 0
     fig, ax = plt.subplots(figsize=(WIDTH, HEIGHT), dpi=300)
@@ -245,6 +245,7 @@ def runtime_performance_plot(data, horizons, model_names):
     plt.tight_layout()
     plt.savefig(f"figures/{args.figure_name}.svg", format='svg', bbox_inches='tight', dpi=300)
     plt.savefig(f"figures/{args.figure_name}.png", format='png', bbox_inches='tight', dpi=300)
+    print(f"Saved plot to figures/{args.figure_name}.png")
     plt.show()
 
 def show_stats(args):

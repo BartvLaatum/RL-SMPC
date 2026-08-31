@@ -76,7 +76,7 @@ def rl_comparisons(
         
         # Compute statistics for each prediction horizon
         for h in horizons:
-            if h in data['rl-zero-terminal-smpc']:
+            if h in data['rl-zero-terminal-smpc'] and model in data['rl-zero-terminal-smpc'][h]:
                 # Group by run and sum the specified variable to get cumulative reward per run
                 grouped_runs = data['rl-zero-terminal-smpc'][h][model].groupby("run")
                 cumulative_rewards = grouped_runs[variable].sum()
@@ -123,7 +123,7 @@ def rl_comparisons(
         ax.yaxis.set_major_formatter(plt.FormatStrFormatter('%.1f'))
 
     # Set x-axis label
-    ax.set_xlabel('Prediction Horizon (H)')
+    ax.set_xlabel('Prediction horizon ($H$)')
 
     # --- Create custom legend with both color patches and line styles ---
     # Define legend handles for different configurations
@@ -144,14 +144,17 @@ def rl_comparisons(
     # Set y-axis label and create legend based on variable type
     if variable == 'rewards':
         ax.set_ylabel(f'Cumulative {variable[:-1]}')
+        ax.set_yticks([2.3, 2.6, 2.9])
+
         ax.legend(handles=handles, loc='center', ncol=2)
     elif variable == 'econ_rewards':
-        ax.set_ylabel(f'Cumulative EPI (EU/m$^2$)')
+        ax.set_ylabel(f'Cumulative EPI (EUR/m$^2$)')
+        ax.set_yticks([3.4, 3.7, 4.0])
     elif variable == 'penalties':
         ax.set_ylabel(f'Cumulative penalty')
-
+        ax.set_yticks([1.0, 1.3])
     # Add grid and finalize layout
-    ax.grid()
+    # ax.grid()
     fig.tight_layout()
     
     # --- Save plot ---
@@ -168,6 +171,7 @@ def rl_comparisons(
                 bbox_inches='tight', dpi=300)
     fig.savefig(f'{dir_path}{variable}{uncertainty_suffix}.png', format='png',
                 bbox_inches='tight', dpi=300)
+    print(f"Saved plot to {dir_path}{variable}{uncertainty_suffix}.png")
     plt.show()
 
 def load_data(
@@ -266,6 +270,10 @@ def load_data(
             # Define file paths for different RL-SMPC configurations
             rlsmpc_path = f'data/{project}/{mode}/rlsmpc/{model}-zero-order-{h}{uncertainty_suffix}.csv'
             rlsmpc_terminal_path = f'data/{project}/{mode}/rlsmpc/{model}-no-tightening-{h}{uncertainty_suffix}.csv'
+            if not os.path.exists(rlsmpc_terminal_path):
+                # Older runs (e.g. some early RL models) were saved under the
+                # previous naming convention before the rename to "no-tightening".
+                rlsmpc_terminal_path = f'data/{project}/{mode}/rlsmpc/{model}-zero-order-terminal-{h}{uncertainty_suffix}.csv'
             rl_first_smpc_path = f'data/{project}/{mode}/rlsmpc/{model}-first-order-{h}{uncertainty_suffix}.csv'
             rl_first_terminal_smpc_path = f'data/{project}/{mode}/rlsmpc/{model}-first-order-terminal-{h}{uncertainty_suffix}.csv'
 

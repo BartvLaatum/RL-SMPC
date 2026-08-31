@@ -117,8 +117,8 @@ def runtime_performance_plot(data, horizons, model_names, variable):
         - Handles missing data gracefully by skipping unavailable combinations
         - Plots are saved with uncertainty value suffix for identification
     """
-    WIDTH = 60 * 0.0393700787
-    HEIGHT = WIDTH * 0.75
+    WIDTH = 130/3* 0.0393700787
+    HEIGHT = WIDTH * 1.0
     color_counter  = 0
     fig, ax = plt.subplots(figsize=(WIDTH, HEIGHT), dpi=300)
     horizon_nums = [int(h[0]) for h in horizons]
@@ -214,18 +214,19 @@ def runtime_performance_plot(data, horizons, model_names, variable):
 
 
 
-    ax.set_xlabel("Horizon (H)")
+    ax.set_xlabel("Prediction horizon ($H$)")
     ax.set_ylabel("Cumulative reward")
     fig.tight_layout()
+    ax.set_xticks(np.arange(2, 9, 2))
     # Save plot
     dir_path = f'figures/{args.project}/{args.mode}/{args.figure_name}/'
     os.makedirs(dir_path, exist_ok=True)
 
     if variable == 'rewards':
         ax.set_ylabel(f'Cumulative {variable[:-1]}')
-        ax.legend()
+        ax.legend(ncol=2, frameon=False)
     elif variable == 'econ_rewards':
-        ax.set_ylabel(f'Cumulative EPI (EU/m$^2$)')
+        ax.set_ylabel(f'Cumulative EPI (EUR/m$^2$)')
         variable = "EPI"
     elif variable == 'penalties':
         ax.set_ylabel(f'Cumulative penalty')

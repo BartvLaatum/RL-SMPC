@@ -148,8 +148,8 @@ def create_plot(
     Returns: None
         Displays the plot and saves it to disk.
     """
-    WIDTH = 60 * 0.0393700787
-    HEIGHT = WIDTH * 0.75
+    WIDTH = 130/3 * 0.0393700787
+    HEIGHT = WIDTH * 1.0
     color_counter  = 0
     fig, ax = plt.subplots(figsize=(WIDTH, HEIGHT), dpi=300)
 
@@ -288,17 +288,17 @@ def create_plot(
         #     print(tabulate(rl_table, headers=["Model", "Final Reward"], floatfmt=".3f"))
 
     # Set axis labels and legend
-    ax.set_xlabel('Prediction Horizon (H)')
+    ax.set_xlabel('Prediction Horizon ($H$)')
     if variable == 'rewards':
         ax.set_ylabel(f'Cumulative {variable[:-1]}')
-        ax.legend()
+        ax.legend(frameon=False, ncol=4)
     elif variable == 'econ_rewards':
-        ax.set_ylabel(f'Cumulative EPI (EU/m$^2$)')
+        ax.set_ylabel(f'Cumulative EPI (EUR/m$^2$)')
     elif variable == 'penalties':
         ax.set_ylabel(f'Cumulative penalty')
     print("----------------------------------------")
     fig.tight_layout()
-
+    ax.set_xticks(range(2, max(horizon_nums) + 1, 2))
     # --- Save plot to disk ---
     dir_path = f'figures/{project}/{mode}/{figure_name}/'
     os.makedirs(dir_path, exist_ok=True)
@@ -310,6 +310,7 @@ def create_plot(
                 bbox_inches='tight', dpi=300)
     fig.savefig(f'{dir_path}{variable}{uncertainty_suffix}.png', format='png',
                 bbox_inches='tight', dpi=300)
+    print(f"Saved plot to {dir_path}{variable}{uncertainty_suffix}.png")
     plt.show()
 
 def main():

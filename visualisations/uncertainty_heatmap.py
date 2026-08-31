@@ -16,8 +16,8 @@ plt.rcParams["axes.spines.right"] = True
 plt.rcParams["axes.linewidth"] = 1  # Axis border thickness
 
 # Figure dimensions in inches (converted from mm)
-WIDTH = 61 * 0.03937
-HEIGHT = WIDTH * 0.75
+WIDTH = 150/3 * 0.03937
+HEIGHT = WIDTH * 1
 
 def extract_params(filename):
     """
@@ -145,7 +145,7 @@ def main():
             except Exception as e:
                 print(f"Error reading {filepath}: {e}")
                 continue
-            print(h, delta, std_mean_reward)
+            # print(h, delta, std_mean_reward)
             result_dict[(h, delta)] = mean_reward
             # Uncomment the following lines to process additional metrics:
             # result_dict_epi[(h, delta)] = mean_epi
@@ -166,13 +166,13 @@ def main():
     common_keys = set(smpc_rewards.keys()) & set(rlsmpc_rewards.keys())
     if not common_keys:
         print("No matching (prediction horizon, uncertainty) pairs found between mpc and rl-smpc data.")
-        print(mpc_rewards.keys())
+        # print(mpc_rewards.keys())
         return
 
     # Create sorted lists of horizons and uncertainties for consistent plotting
     horizons = sorted({h for h, _ in common_keys})
     uncertainties = sorted({delta for _, delta in common_keys})
-    print(uncertainties)
+    # print(uncertainties)
 
     # Process RL results - each model corresponds to a specific uncertainty level
     for i, model in enumerate(rl_models):
@@ -194,7 +194,8 @@ def main():
 
     fig, ax = create_heatmap_figure(horizons, uncertainties, title="RL-SMPC vs MPC")
     fig, ax = plot_heatmap(diff_matrix_rewards, ax, fig, 'reward', m)
-    # fig.savefig("heatmap-rlsmpc-mpc.svg", dpi=300, bbox_inches='tight', format='svg')
+    fig.savefig("figures/SMPC/stochastic/dissertation/heatmap-rlsmpc-mpc.svg", dpi=300, bbox_inches='tight', format='svg')
+    print(f"Saved plot to figures/SMPC/stochastic/dissertation/heatmap-rlsmpc-mpc.svg")
     plt.show()
 
     # Create heatmap comparing RL-SMPC vs RL
@@ -204,7 +205,8 @@ def main():
 
     fig, ax = create_heatmap_figure(horizons, uncertainties, title="RL-SMPC vs RL")
     fig, ax = plot_heatmap(diff_matrix_rewards, ax, fig, 'reward', m)
-    # fig.savefig("heatmap-rlsmpc-rl.svg", dpi=300, bbox_inches='tight', format='svg')
+    fig.savefig("figures/SMPC/stochastic/dissertation/heatmap-rlsmpc-rl.svg", dpi=300, bbox_inches='tight', format='svg')
+    print(f"Saved plot to figures/SMPC/stochastic/dissertation/heatmap-rlsmpc-rl.svg")
     plt.show()
 
     # Create heatmap comparing RL-SMPC vs SMPC
@@ -213,7 +215,8 @@ def main():
 
     fig, ax = create_heatmap_figure(horizons, uncertainties, title="RL-SMPC vs SMPC")
     fig, ax = plot_heatmap(diff_matrix_rewards, ax, fig, 'reward', m)
-    # fig.savefig("heatmap-rlsmpc-smpc.svg", dpi=300, bbox_inches='tight', format='svg')
+    fig.savefig("figures/SMPC/stochastic/dissertation/heatmap-rlsmpc-smpc.svg", dpi=300, bbox_inches='tight', format='svg')
+    print(f"Saved plot to figures/SMPC/stochastic/dissertation/heatmap-rlsmpc-smpc.svg")
     plt.show()
 
 def plot_heatmap(data, ax, fig, variable, m):
@@ -230,7 +233,7 @@ def plot_heatmap(data, ax, fig, variable, m):
     Returns:
         tuple: (fig, ax) - Updated figure and axes objects
     """
-    print(m)
+    # print(m)
     # Use coolwarm colormap for diverging data
     cmap="coolwarm"
     im = ax.imshow(data, cmap=cmap, origin='upper')
@@ -241,11 +244,11 @@ def plot_heatmap(data, ax, fig, variable, m):
     ax.invert_yaxis()
 
     # Colorbar configuration
-    cbar = fig.colorbar(im, ax=ax, orientation='horizontal')
-    cbar.ax.invert_xaxis()
-    cbar.ax.xaxis.set_label_position('top')
-    cbar.ax.tick_params(top=True, bottom=False, labeltop=True, labelbottom=False)
-    cbar.set_label(f'$\Delta$% Cumulative {variable}')
+    # cbar = fig.colorbar(im, ax=ax, orientation='horizontal')
+    # # cbar.ax.invert_xaxis()
+    # cbar.ax.xaxis.set_label_position('top')
+    # cbar.ax.tick_params(top=True, bottom=False, labeltop=True, labelbottom=False)
+    # cbar.set_label(f'$\Delta$% Cumulative {variable}')
 
     plt.tight_layout()
     return fig, ax
@@ -264,7 +267,7 @@ def create_heatmap_figure(horizons, uncertainties, title):
     """
     fig = plt.figure(figsize=(WIDTH, HEIGHT), dpi=300)
     ax = plt.gca()
-    ax.set_title(title)
+    ax.set_title(title, fontsize=8)
 
     # Set x-axis ticks and labels for prediction horizons
     ax.set_xticks(np.arange(start=1, stop=9, step=2))
@@ -277,8 +280,8 @@ def create_heatmap_figure(horizons, uncertainties, title):
     ax.set_yticklabels(show_values)
 
     # Set axis labels
-    ax.set_xlabel("Prediction Horizon (H)")
-    ax.set_ylabel("Uncertainty $(\delta)$")
+    ax.set_xlabel("Prediction Horizon ($H$)")
+    # ax.set_ylabel("Uncertainty $(\delta)$")
     return fig, ax
 
 if __name__ == "__main__":

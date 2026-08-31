@@ -43,8 +43,9 @@ print(f"Ns: {Ns}, ny: {ny}, Np: {Np}, N: {N}")
 selected_time = int(13.3*24*2)  # Example: 13.3 days, 30-min intervals
 
 # Set up figure for detailed output trajectory visualization
-WIDTH = 173.8 * 0.03937
-HEIGHT = WIDTH * 0.4
+WIDTH = 130 * 0.03937
+HEIGHT = WIDTH * 0.6
+# SUBPLOT_KW = dict[str, float](left=0.2, right=0.97, top=0.97, bottom=0.2)
 fig_detail = plt.figure(figsize=(WIDTH, HEIGHT), dpi=180)
 gs_detail = GridSpec(2, ny, figure=fig_detail)
 # State variable axis limits
@@ -118,7 +119,7 @@ for var_idx in range(ny):
         ax.plot([], [], '-', color='C0', linewidth=2, alpha=0.8, label='SMPC')
         ax.plot([], [], '-', color='C3', linewidth=2, alpha=0.8, label='RL-SMPC')
         ax.plot([], [], '-', color='#B3B3E1', linewidth=2, alpha=0.8, label='RL-rollout')
-        ax.legend()
+        ax.legend(ncol=3, frameon=False, loc='upper right')
 
     # Set tick locators for clarity
     ax.yaxis.set_major_locator(plt.LinearLocator(3))
@@ -128,8 +129,10 @@ for var_idx in range(ny):
 
 # Finalize and save the detailed output trajectory figure
 fig_detail.tight_layout()
-fig_detail.savefig(f"figures/SMPC-open-loop-{H}H-20Ns-vs-sim-rl-samples.png", bbox_inches="tight", format="png", dpi=300)
-fig_detail.savefig(f"figures/SMPC-open-loop-{H}H-20Ns-vs-sim-rl-samples.svg", bbox_inches="tight", format="svg", dpi=300)
+# fig_detail.subplots_adjust(**SUBPLOT_KW)
+
+fig_detail.savefig(f"figures/SMPC/stochastic/dissertation/SMPC-open-loop-{H}H-20Ns-vs-sim-rl-samples.png", bbox_inches="tight", format="png", dpi=300)
+fig_detail.savefig(f"figures/SMPC/stochastic/dissertation/SMPC-open-loop-{H}H-20Ns-vs-sim-rl-samples.svg", bbox_inches="tight", format="svg", dpi=300)
 
 # Create a figure to show the control trajectory for each control input
 fig, axes  = plt.subplots(1, 3, figsize=(5 * 3, 6))

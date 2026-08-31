@@ -73,7 +73,7 @@ def plot_states(
         if var == "d" and i == 0:
             # Special handling for the first disturbance: plot global radiation
             axes[1, 0].step(time, df_mean[f'{var}_{i}'].values, color=color)
-            axes[1, 0].set_ylabel("Global Radiation (W/m$^2$)")
+            axes[1, 0].set_ylabel(r"$d_{\mathrm{iGlob}}$ (W/m$^2$)")
             axes[1, 0].set_ylim(0, 600)
         else:
             # Extract mean and std for the variable
@@ -153,11 +153,13 @@ def animated_plot():
     fig.legend(color_handles,
                ["SMPC", "RL-SMPC"],
                title="Algorithm",
-               loc="upper center")
+               loc="upper center",
+               frameon=False,
+               ncol=3)
 
     # prepare bounds & labels
     state_ylabels = [
-        r"Lettuce DW (g/m$^2$)", r"CO_$2$ concentration (ppm)",
+        r"$y_{\mathrm{DW}}$ (kg/m$^2$)", r"CO_$2$ concentration (ppm)",
         r"Temperature ($^\circ$C)",    r"RH (%)"
     ]
     state_bounds = [None, (500, 1600), (10, 20), (0, 80)]
@@ -166,8 +168,8 @@ def animated_plot():
     ]
 
     input_ylabels = [
-        r"CO$_2$-injection (mg/m$^2$/s)", r"Ventilation (m$^3$/m$^2$/s)",
-        r"Heating (W/m$^2$)"
+        r"$u_{\mathrm{CO_2}}$ (mg/m$^2$/s)", r"$u_{\mathrm{vent}}$ (m$^3$/m$^2$/s)",
+        r"$u_{\mathrm{heat}}$ (W/m$^2$)"
     ]
     input_bounds = [(0, 1.2), (0, 7.5), (0, 150)]
 
@@ -335,7 +337,7 @@ def static_plot():
     """
     # --- Load and group data for the specified model and horizon ---
     model_name = "brisk-resonance-24"
-    H = "6H"
+    H = "1H"
     data, horizons = load_data(
         [model_name],
         mode="stochastic",
@@ -354,8 +356,8 @@ def static_plot():
     rldata   = data["rl"][model_name].reset_index().groupby("time")
     
     # Set up figure dimensions and create subplots
-    WIDTH = 173.8 * 0.0393700787
-    HEIGHT = WIDTH * 0.4
+    WIDTH = 130 * 0.0393700787
+    HEIGHT = WIDTH * 0.6
     fig, axes = plt.subplots(
         2, 4, sharex=True,
         figsize=(WIDTH, HEIGHT), dpi=300,
@@ -372,12 +374,13 @@ def static_plot():
                ["SMPC", "RL-SMPC", "Outdoor"],
             #    title="Controller",
                loc="upper center",
-               ncol=1)
+               frameon=False,
+               ncol=3)
 
     # Define plot configuration for states, inputs, and disturbances
     # State variable labels and bounds
     state_ylabels = [
-        r"Lettuce DW (g/m$^2$)", r"CO$_2$ concentration (ppm)",
+        r"$y_{\mathrm{DW}}$ (kg/m$^2$)", r"CO$_2$ concentration (ppm)",
         r"Temperature ($^\circ$C)",    r"Relative Humidity (%)"
     ]
     state_bounds = [None, (500, 1600), (10, 20), (0, 80)]
@@ -387,8 +390,8 @@ def static_plot():
 
     # Control input labels and bounds
     input_ylabels = [
-        r"CO$_2$-injection (mg/m$^2$/s)", r"Ventilation (m$^3$/m$^2$/s)",
-        r"Heating (W/m$^2$)"
+        r"$u_{\mathrm{CO_2}}$ (mg/m$^2$/s)", r"$u_{\mathrm{vent}}$ (m$^3$/m$^2$/s)",
+        r"$u_{\mathrm{heat}}$ (W/m$^2$)"
     ]
     input_bounds = [(0, 1.2), (0, 7.5), (0, 150)]
 
@@ -490,8 +493,8 @@ def static_plot():
     plt.tight_layout()
     
     # Save plot in both PNG and SVG formats
-    fig.savefig(f'closed_loop_trajectories-daylight-{H}.png', format='png', dpi=300)
-    fig.savefig(f'closed_loop_trajectories-daylight-{H}.svg', format='svg', dpi=300)
+    fig.savefig(f'figures/SMPC/stochastic/dissertation/closed_loop_trajectories-daylight-{H}.png', format='png', dpi=300)
+    fig.savefig(f'figures/SMPC/stochastic/dissertation/closed_loop_trajectories-daylight-{H}.svg', format='svg', dpi=300)
     plt.show()
 
 if __name__ == "__main__":

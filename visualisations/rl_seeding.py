@@ -63,8 +63,8 @@ def rl_seeds_plot(
     Displays the plot and saves it.
     """
     # Set up figure dimensions and create plot
-    WIDTH = 60 * 0.0393700787
-    HEIGHT = WIDTH * 0.75
+    WIDTH = 130/3 * 0.0393700787
+    HEIGHT = WIDTH * 1.0
     fig, ax = plt.subplots(figsize=(WIDTH, HEIGHT), dpi=300)
     
     # Convert horizon labels to integers for plotting
@@ -140,9 +140,9 @@ def rl_seeds_plot(
     # Set y-axis formatting for clarity
     ax.yaxis.set_major_locator(plt.LinearLocator(3))
     ax.yaxis.set_major_formatter(plt.FormatStrFormatter('%.1f'))
-
+    ax.set_xticks(horizon_nums[:])
     # Set x-axis label
-    ax.set_xlabel('Prediction Horizon (H)')
+    ax.set_xlabel('Prediction horizon ($H$)')
 
     # --- Create custom legend with both color patches and line styles ---
     # Define legend handles for different configurations
@@ -165,14 +165,14 @@ def rl_seeds_plot(
         ax.set_ylabel(f'Cumulative {variable[:-1]}')
         ax.legend(handles=handles, loc='center', ncol=2)
     elif variable == 'econ_rewards':
-        ax.set_ylabel(f'Cumulative EPI (EU/m$^2$)')
+        ax.set_ylabel(f'Cumulative EPI (EUR/m$^2$)')
     elif variable == 'penalties':
         ax.set_ylabel(f'Cumulative penalty')
 
     # Add grid and finalize layout
-    ax.grid()
+    # ax.grid()
     fig.tight_layout()
-    
+
     # --- Save plot ---
     dir_path = f'figures/{project}/{mode}/{figure_name}/'
     os.makedirs(dir_path, exist_ok=True)
@@ -187,6 +187,7 @@ def rl_seeds_plot(
                 bbox_inches='tight', dpi=300)
     fig.savefig(f'{dir_path}{variable}{uncertainty_suffix}.png', format='png',
                 bbox_inches='tight', dpi=300)
+    print(f'Saved plot to {dir_path}{variable}{uncertainty_suffix}.svg')
     plt.show()
 
 def load_data(
